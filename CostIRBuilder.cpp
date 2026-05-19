@@ -2,6 +2,7 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include <cassert>
+#include <mlir/Dialect/Func/IR/FuncOps.h>
 
 CostIRBuilder::CostIRBuilder(MLIRContext *ctx)
     : builder(ctx),
@@ -101,6 +102,10 @@ void CostIRBuilder::finalize(Value result) {
 
 ModuleOp CostIRBuilder::getModule() {
     return module;
+}
+
+func::FuncOp CostIRBuilder::getCost() {
+    return costFunc;
 }
 
 OpBuilder &CostIRBuilder::getBuilder() {

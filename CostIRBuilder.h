@@ -25,6 +25,7 @@ public:
     void finalize(Value result);
 
     ModuleOp getModule();
+    func::FuncOp getCost();
     OpBuilder &getBuilder();
     Location getLoc() const;
 

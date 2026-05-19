@@ -15,7 +15,7 @@ using CostConfig = llvm::StringMap<CostSpec>;
 // name.
 // {opname, F64 cost} or {opname, cost_name}
 inline const CostConfig SimpleOpCosts = {
-    {"xegpu.create_nd_tdesc", 0.0},
+    // {"xegpu.create_nd_tdesc", 0.0},
     {"arith.muli", 1.0},
 };
 inline const CostConfig NamedOpCosts = {

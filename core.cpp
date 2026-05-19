@@ -6,15 +6,20 @@
 #include <iostream>
 #include <llvm/ADT/ArrayRef.h>
 #include <llvm/ADT/SmallVector.h>
+#include <llvm/Support/Casting.h>
 #include <llvm/Support/ErrorHandling.h>
-#include <cassert>
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
+#include <mlir/Dialect/GPU/IR/GPUDialect.h>
+#include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/Operation.h>
+#include <mlir/IR/SymbolTable.h>
 #include <mlir/IR/Types.h>
+#include <mlir/Support/LLVM.h>
 #include <variant>
+#include <cassert>
 
 using namespace mlir;
 
@@ -39,7 +44,7 @@ void analyze_cost(Operation &op, llvm::raw_ostream &os) {
         os << " @" << symName.getValue();
     }
     os << "\n";
-    costBuilder.getModule().print(os);
+    costBuilder.getCost().print(os);
     os << "\n";
 }
 
@@ -64,6 +69,16 @@ Value analyze_op(CostIRBuilder &costBuilder, Operation &op) {
     if (auto forOp = dyn_cast<scf::ForOp>(op)) {
         return analyze_for_op(costBuilder, forOp);
     }
+    
+    if (auto callOp = dyn_cast<func::CallOp>(op)) {
+        Operation *callee = SymbolTable::lookupNearestSymbolFrom(callOp.getOperation(), callOp.getCalleeAttr());
+        analyze_cost(*callee, llvm::errs());
+    }
+
+    if (auto launchOp = dyn_cast<gpu::LaunchFuncOp>(op)) {
+        Operation *callee = SymbolTable::lookupNearestSymbolFrom(launchOp.getOperation(), launchOp.getKernelAttr());
+        analyze_cost(*callee, llvm::errs());
+    }
 
     return analyze_simple_op(costBuilder, op);
 }
@@ -83,12 +98,10 @@ Value analyze_simple_op(CostIRBuilder &costBuilder, Operation &op) {
 
     // Return an named variable cost for operation
     if (namedCostIt != NamedOpCosts.end()) {
-        std::cerr <<"dbg";
         const CostSpec &cost = namedCostIt->second;
         return costBuilder.addCostArgument(std::get<llvm::StringRef>(cost));
     }
 
     // No cost is set for the operation, defaulting to zero for now
-    std::cerr<< "dbg2";
     return costBuilder.zero();
 }
