@@ -18,15 +18,16 @@
 #include <mlir/IR/SymbolTable.h>
 #include <mlir/IR/Types.h>
 #include <mlir/Support/LLVM.h>
+#include <optional>
 #include <variant>
 #include <cassert>
 
 using namespace mlir;
 
 Value analyze_BB(CostIRBuilder &costBuilder, Block &BB);
-Value analyze_op(CostIRBuilder &costBuilder, Operation &op);
 Value analyze_region(CostIRBuilder &costBuilder, Region &region);
-Value analyze_simple_op(CostIRBuilder &costBuilder, Operation &op);
+std::optional<Value> analyze_op(CostIRBuilder &costBuilder, Operation &op);
+std::optional<Value> analyze_simple_op(CostIRBuilder &costBuilder, Operation &op);
 
 void analyze_cost(Operation &op, llvm::raw_ostream &os) {
     CostIRBuilder costBuilder(op.getContext());
@@ -62,12 +63,15 @@ Value analyze_BB(CostIRBuilder &costBuilder, Block &BB) {
     llvm::SmallVector<Value, 10> opCosts;
     // iterate over ops in basic block and sum
     for (auto &op : BB) {
-        opCosts.push_back(analyze_op(costBuilder, op));
+        auto cost = analyze_op(costBuilder, op);
+        if (cost) {
+            opCosts.push_back(cost.value());
+        }
     }
     return costBuilder.sumCosts(opCosts);
 }
 
-Value analyze_op(CostIRBuilder &costBuilder, Operation &op) {
+std::optional<Value> analyze_op(CostIRBuilder &costBuilder, Operation &op) {
     if (auto forOp = dyn_cast<scf::ForOp>(op)) {
         return analyze_for_op(costBuilder, forOp);
     }
@@ -86,7 +90,7 @@ Value analyze_op(CostIRBuilder &costBuilder, Operation &op) {
 }
 
 // return cost for ops with cost defined in costConfig. 
-Value analyze_simple_op(CostIRBuilder &costBuilder, Operation &op) {
+std::optional<Value> analyze_simple_op(CostIRBuilder &costBuilder, Operation &op) {
     auto simpleCostIt = SimpleOpCosts.find(op.getName().getStringRef());
     auto namedCostIt = NamedOpCosts.find(op.getName().getStringRef());
 
@@ -104,6 +108,6 @@ Value analyze_simple_op(CostIRBuilder &costBuilder, Operation &op) {
         return costBuilder.addCostArgument(std::get<llvm::StringRef>(cost));
     }
 
-    // No cost is set for the operation, defaulting to zero for now
-    return costBuilder.zero();
+    // No cost is set for the operation
+    return {};
 }
