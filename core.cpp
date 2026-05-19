@@ -3,7 +3,6 @@
 #include "Loop.h"
 #include "core.h"
 #include "llvm/Support/raw_ostream.h"
-#include <iostream>
 #include <llvm/ADT/ArrayRef.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Support/Casting.h>
@@ -28,6 +27,17 @@ Value analyze_BB(CostIRBuilder &costBuilder, Block &BB);
 Value analyze_region(CostIRBuilder &costBuilder, Region &region);
 std::optional<Value> analyze_op(CostIRBuilder &costBuilder, Operation &op);
 std::optional<Value> analyze_simple_op(CostIRBuilder &costBuilder, Operation &op);
+
+Value analyze_function(CostIRBuilder &costBuilder, Operation &op) {
+    llvm::SmallVector<Value, 10> regionCosts;
+
+    for (Region &region : op.getRegions()) {
+        regionCosts.push_back(analyze_region(costBuilder, region));
+    }
+
+    Value cost = costBuilder.sumCosts(regionCosts);
+    return cost;
+}
 
 void analyze_cost(Operation &op, llvm::raw_ostream &os) {
     CostIRBuilder costBuilder(op.getContext());
@@ -72,20 +82,24 @@ Value analyze_BB(CostIRBuilder &costBuilder, Block &BB) {
 }
 
 std::optional<Value> analyze_op(CostIRBuilder &costBuilder, Operation &op) {
+    // SCF Loop Op
     if (auto forOp = dyn_cast<scf::ForOp>(op)) {
         return analyze_for_op(costBuilder, forOp);
     }
     
+    // Func Call Op
     if (auto callOp = dyn_cast<func::CallOp>(op)) {
         Operation *callee = SymbolTable::lookupNearestSymbolFrom(callOp.getOperation(), callOp.getCalleeAttr());
-        analyze_cost(*callee, llvm::errs());
+        return analyze_function(costBuilder, *callee);
     }
 
+    // GPU Kernel Launch Op
     if (auto launchOp = dyn_cast<gpu::LaunchFuncOp>(op)) {
         Operation *callee = SymbolTable::lookupNearestSymbolFrom(launchOp.getOperation(), launchOp.getKernelAttr());
-        analyze_cost(*callee, llvm::errs());
+        return analyze_function(costBuilder, *callee);
     }
 
+    // Other Basic Ops with cost defined in costConfig.h
     return analyze_simple_op(costBuilder, op);
 }
 
