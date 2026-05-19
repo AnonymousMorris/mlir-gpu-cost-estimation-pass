@@ -3,6 +3,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include <cassert>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
+#include <mlir/IR/Location.h>
 
 CostIRBuilder::CostIRBuilder(MLIRContext *ctx)
     : builder(ctx),
@@ -36,7 +37,8 @@ Value CostIRBuilder::addArgument(llvm::StringRef name, Type type) {
         return argumentIt->second;
     }
 
-    Value argument = entry->addArgument(type, loc);
+    auto nameLoc = NameLoc::get(builder.getStringAttr(name), loc);
+    Value argument = entry->addArgument(type, nameLoc);
 
     llvm::SmallVector<Type> inputs(entry->getArgumentTypes());
     auto newFuncType = builder.getFunctionType(inputs, {costType});

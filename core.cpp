@@ -44,7 +44,9 @@ void analyze_cost(Operation &op, llvm::raw_ostream &os) {
         os << " @" << symName.getValue();
     }
     os << "\n";
-    costBuilder.getCost().print(os);
+    OpPrintingFlags flags;
+    flags.printNameLocAsPrefix();
+    costBuilder.getCost().print(os, flags);
     os << "\n";
 }
 
