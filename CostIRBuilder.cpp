@@ -4,6 +4,8 @@
 #include <cassert>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/IR/Location.h>
+#include <mlir/Pass/PassManager.h>
+#include <mlir/Transforms/Passes.h>
 
 CostIRBuilder::CostIRBuilder(MLIRContext *ctx)
     : builder(ctx),
@@ -100,6 +102,18 @@ Value CostIRBuilder::sumCosts(llvm::ArrayRef<Value> costs) {
 void CostIRBuilder::finalize(Value result) {
     builder.setInsertionPointToEnd(entry);
     func::ReturnOp::create(builder, loc, result);
+}
+
+void CostIRBuilder::simplify() {
+    PassManager pm(module->getContext());
+
+    pm.addPass(createCanonicalizerPass());
+    pm.addPass(createCSEPass());
+    pm.addPass(createCanonicalizerPass());
+
+    if (failed(pm.run(module))) {
+        llvm::report_fatal_error("failed to simplify cost expression");
+    }
 }
 
 ModuleOp CostIRBuilder::getModule() {

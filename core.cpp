@@ -49,6 +49,7 @@ void analyze_cost(Operation &op, llvm::raw_ostream &os) {
 
     Value cost = costBuilder.sumCosts(regionCosts);
     costBuilder.finalize(cost);
+    costBuilder.simplify();
 
     os << "\n// Cost expression for " << op.getName();
     if (auto symName = op.getAttrOfType<StringAttr>("sym_name")) {

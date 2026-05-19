@@ -23,6 +23,7 @@ public:
     Value indexToCost(Value value);
     Value sumCosts(llvm::ArrayRef<Value> costs);
     void finalize(Value result);
+    void simplify();
 
     ModuleOp getModule();
     func::FuncOp getCost();
