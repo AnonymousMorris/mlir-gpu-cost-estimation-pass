@@ -18,6 +18,7 @@ public:
     Value addArgument(llvm::StringRef name, Type type);
     Value addCostArgument(llvm::StringRef name);
     Value add(Value lhs, Value rhs);
+    Value sub(Value lhs, Value rhs);
     Value mul(Value lhs, Value rhs);
     Value indexConstant(int64_t value);
     Value indexToCost(Value value);

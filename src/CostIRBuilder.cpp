@@ -66,6 +66,18 @@ Value CostIRBuilder::add(Value lhs, Value rhs) {
     return arith::AddIOp::create(builder, loc, lhs, rhs);
 }
 
+Value CostIRBuilder::sub(Value lhs, Value rhs) {
+    Type type = lhs.getType();
+    assert(type == rhs.getType() && "add operands must have the same type");
+
+    if (isa<FloatType>(type)) {
+        return arith::SubFOp::create(builder, loc, lhs, rhs);
+    }
+
+    assert(type.isIntOrIndex() && "unsupported add operand type");
+    return arith::SubIOp::create(builder, loc, lhs, rhs);
+}
+
 Value CostIRBuilder::mul(Value lhs, Value rhs) {
     Type type = lhs.getType();
     assert(type == rhs.getType() && "mul operands must have the same type");

@@ -126,3 +126,40 @@ std::optional<Value> analyze_simple_op(CostIRBuilder &costBuilder, Operation &op
     // No cost is set for the operation
     return {};
 }
+
+// Cost = 
+// p1 * L1_cost + 
+// (1 - p1) * p2 * L2_cost + 
+// (1 - p1) * (1 - p2) * p3 * L3_cost + 
+// (1 - p1) * (1 - p2) * (1 - p3) * Global_cost
+Value analyze_memory_op(CostIRBuilder &costBuilder, Operation &op) {
+    Value one = costBuilder.constantCost(1.0);
+    Value p1 = costBuilder.addCostArgument("residency.p1");
+    Value l1_cost = costBuilder.addCostArgument("residency.l1_cost");
+    Value p2 = costBuilder.addCostArgument("residency.p2");
+    Value l2_cost = costBuilder.addCostArgument("residency.l2_cost");
+    Value p3 = costBuilder.addCostArgument("residency.p3");
+    Value l3_cost = costBuilder.addCostArgument("residency.l3_cost");
+    Value global_cost = costBuilder.addCostArgument("residency.global_cost");
+
+    Value miss1 = costBuilder.sub(one, p1);
+    Value miss2 = costBuilder.sub(one, p2);
+    Value miss3 = costBuilder.sub(one, p3);
+
+    Value l1_term = costBuilder.mul(p1, l1_cost);
+    Value l2_prob = costBuilder.mul(miss1, p2);
+    Value l2_term = costBuilder.mul(l2_prob, l2_cost);
+    Value l3_pre = costBuilder.mul(l2_prob, miss2);
+    Value l3_prob = costBuilder.mul(l3_pre, p3);
+    Value l3_term = costBuilder.mul(l3_prob, l3_cost);
+    Value global_prob = costBuilder.mul(l3_prob, miss3);
+    Value global_term = costBuilder.mul(global_prob, global_cost);
+
+    llvm::SmallVector<Value, 4> terms;
+    terms.push_back(l1_term);
+    terms.push_back(l2_term);
+    terms.push_back(l3_term);
+    terms.push_back(global_term);
+
+    return costBuilder.sumCosts(terms);
+}

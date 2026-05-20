@@ -4,8 +4,8 @@ project(Skeleton)
 # LLVM uses C++17.
 set(CMAKE_CXX_STANDARD 17)
 
-find_package(LLVM REQUIRED CONFIG)
 find_package(MLIR REQUIRED CONFIG)
+find_package(LLVM REQUIRED CONFIG)
 
 list(APPEND CMAKE_MODULE_PATH ${MLIR_CMAKE_DIR})
 
