@@ -10,6 +10,7 @@
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/GPU/IR/GPUDialect.h>
+#include "mlir/Dialect/XeGPU/IR/XeGPU.h"
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/Builders.h>
@@ -25,6 +26,7 @@ using namespace mlir;
 
 Value analyze_BB(CostIRBuilder &costBuilder, Block &BB);
 Value analyze_region(CostIRBuilder &costBuilder, Region &region);
+Value analyze_memory_op(CostIRBuilder &costBuilder, Operation &op);
 std::optional<Value> analyze_op(CostIRBuilder &costBuilder, Operation &op);
 std::optional<Value> analyze_simple_op(CostIRBuilder &costBuilder, Operation &op);
 
@@ -123,6 +125,9 @@ std::optional<Value> analyze_simple_op(CostIRBuilder &costBuilder, Operation &op
         return costBuilder.addCostArgument(std::get<llvm::StringRef>(cost));
     }
 
+    if (auto loadOp = dyn_cast<xegpu::LoadNdOp>(op)) {
+        return analyze_memory_op(costBuilder, *loadOp.getOperation());
+    }
     // No cost is set for the operation
     return {};
 }
@@ -152,7 +157,7 @@ Value analyze_memory_op(CostIRBuilder &costBuilder, Operation &op) {
     Value l3_pre = costBuilder.mul(l2_prob, miss2);
     Value l3_prob = costBuilder.mul(l3_pre, p3);
     Value l3_term = costBuilder.mul(l3_prob, l3_cost);
-    Value global_prob = costBuilder.mul(l3_prob, miss3);
+    Value global_prob = costBuilder.mul(l3_pre, miss3);
     Value global_term = costBuilder.mul(global_prob, global_cost);
 
     llvm::SmallVector<Value, 4> terms;
