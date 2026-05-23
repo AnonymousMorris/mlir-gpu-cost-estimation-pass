@@ -11,6 +11,9 @@ CostIRBuilder::CostIRBuilder(MLIRContext *ctx)
     : builder(ctx),
       loc(UnknownLoc::get(ctx)),
       costType(builder.getF64Type()) {
+    ctx->loadDialect<func::FuncDialect>();
+    ctx->loadDialect<arith::ArithDialect>();
+          
     ownedModule = ModuleOp::create(loc);
     module = *ownedModule;
 

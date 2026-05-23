@@ -4,8 +4,15 @@ project(Skeleton LANGUAGES CXX C)
 # LLVM uses C++17.
 set(CMAKE_CXX_STANDARD 17)
 
+set(TRITON_LLVM_DIR "/home/morris/.triton/llvm/llvm-87717bf9-ubuntu-x64" CACHE PATH "Path to Triton's LLVM/MLIR install")
+set(LLVM_DIR "${TRITON_LLVM_DIR}/lib/cmake/llvm" CACHE PATH "Path to LLVMConfig.cmake" FORCE)
+set(MLIR_DIR "${TRITON_LLVM_DIR}/lib/cmake/mlir" CACHE PATH "Path to MLIRConfig.cmake" FORCE)
+
 find_package(MLIR REQUIRED CONFIG)
 find_package(LLVM REQUIRED CONFIG)
+
+set(TRITON_SOURCE_DIR "/home/morris/code/triton" CACHE PATH "Path to Triton source checkout")
+set(TRITON_BUILD_DIR "/home/morris/code/triton/build/cmake.linux-x86_64-cpython-3.14" CACHE PATH "Path to Triton CMake build directory")
 
 list(APPEND CMAKE_MODULE_PATH ${MLIR_CMAKE_DIR})
 list(APPEND CMAKE_MODULE_PATH ${LLVM_CMAKE_DIR})
@@ -32,4 +39,9 @@ add_llvm_library(
     Loop.cpp
 
     OUTPUT_NAME "libMyPass"
+)
+
+target_include_directories(MyPass PRIVATE
+    ${TRITON_SOURCE_DIR}/include
+    ${TRITON_BUILD_DIR}/include
 )
