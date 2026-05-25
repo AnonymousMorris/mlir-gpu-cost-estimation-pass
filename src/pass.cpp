@@ -39,8 +39,28 @@ struct MyPass : public PassWrapper<MyPass, OperationPass<ModuleOp>> {
     };
 
     void runOnOperation() final {
+        ModuleOp module = getOperation();
+        GpuSpec gpuSpec;
+
+        // Get GPU Spec from module attribute
+        auto numWarps =
+            module->getAttrOfType<IntegerAttr>("ttg.num-warps").getInt();
+        auto threadsPerWarp =
+            module->getAttrOfType<IntegerAttr>("ttg.threads-per-warp").getInt();
+        auto numCTAs =
+            module->getAttrOfType<IntegerAttr>("ttg.num-ctas").getInt();
+        auto target =
+            module->getAttrOfType<StringAttr>("ttg.target").getValue().split(':');
+        gpuSpec = {
+            target.first.str(),
+            target.second.str(),
+            static_cast<int32_t>(numCTAs),
+            static_cast<int32_t>(numWarps),
+            static_cast<int32_t>(threadsPerWarp),
+        };
+
         triton::FuncOp mainFunc;
-        getOperation().walk([&](triton::FuncOp funcOp) {
+        module.walk([&](triton::FuncOp funcOp) {
             if (funcOp.getSymName() == funcName) {
                 mainFunc = funcOp;
                 return WalkResult::interrupt();
@@ -53,7 +73,7 @@ struct MyPass : public PassWrapper<MyPass, OperationPass<ModuleOp>> {
             return;
         }
 
-        analyze_cost(*mainFunc, llvm::errs());
+        analyze_cost(*mainFunc, llvm::errs(), gpuSpec);
     }
 };
 

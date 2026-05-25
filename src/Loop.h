@@ -4,4 +4,7 @@
 
 #include "mlir/Dialect/SCF/IR/SCF.h"
 
-mlir::Value analyze_for_op(CostIRBuilder &costBuilder, mlir::scf::ForOp forOp);
+struct GpuSpec;
+
+mlir::Value analyze_for_op(CostIRBuilder &costBuilder, mlir::scf::ForOp forOp,
+                           const GpuSpec &gpu);

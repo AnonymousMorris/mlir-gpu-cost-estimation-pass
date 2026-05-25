@@ -10,6 +10,7 @@
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/GPU/IR/GPUDialect.h>
+#include "gpuSpec.h"
 #include "mlir/Dialect/XeGPU/IR/XeGPU.h"
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinOps.h>
@@ -24,29 +25,35 @@
 
 using namespace mlir;
 
-Value analyze_BB(CostIRBuilder &costBuilder, Block &BB);
-Value analyze_region(CostIRBuilder &costBuilder, Region &region);
+Value analyze_BB(CostIRBuilder &costBuilder, Block &BB, const GpuSpec &gpu);
+Value analyze_region(CostIRBuilder &costBuilder, Region &region,
+                     const GpuSpec &gpu);
 Value analyze_memory_op(CostIRBuilder &costBuilder, Operation &op);
-std::optional<Value> analyze_op(CostIRBuilder &costBuilder, Operation &op);
-std::optional<Value> analyze_simple_op(CostIRBuilder &costBuilder, Operation &op);
+std::optional<Value> analyze_op(CostIRBuilder &costBuilder, Operation &op,
+                                const GpuSpec &gpu);
+std::optional<Value> analyze_simple_op(CostIRBuilder &costBuilder,
+                                       Operation &op, const GpuSpec &gpu);
+std::optional<Value> analyze_tensor_op(CostIRBuilder &costBuilder,
+                                       Operation &op, const GpuSpec &gpu);
 
-Value analyze_function(CostIRBuilder &costBuilder, Operation &op) {
+Value analyze_function(CostIRBuilder &costBuilder, Operation &op,
+                       const GpuSpec &gpu) {
     llvm::SmallVector<Value, 10> regionCosts;
 
     for (Region &region : op.getRegions()) {
-        regionCosts.push_back(analyze_region(costBuilder, region));
+        regionCosts.push_back(analyze_region(costBuilder, region, gpu));
     }
 
     Value cost = costBuilder.sumCosts(regionCosts);
     return cost;
 }
 
-void analyze_cost(Operation &op, llvm::raw_ostream &os) {
+void analyze_cost(Operation &op, llvm::raw_ostream &os, const GpuSpec &gpu) {
     CostIRBuilder costBuilder(op.getContext());
     llvm::SmallVector<Value, 10> regionCosts;
 
     for (Region &region : op.getRegions()) {
-        regionCosts.push_back(analyze_region(costBuilder, region));
+        regionCosts.push_back(analyze_region(costBuilder, region, gpu));
     }
 
     Value cost = costBuilder.sumCosts(regionCosts);
@@ -64,19 +71,20 @@ void analyze_cost(Operation &op, llvm::raw_ostream &os) {
     os << "\n";
 }
 
-Value analyze_region(CostIRBuilder &costBuilder, Region &region) {
+Value analyze_region(CostIRBuilder &costBuilder, Region &region,
+                     const GpuSpec &gpu) {
     llvm::SmallVector<Value, 10> blockCosts;
     for (Block &block : region) {
-        blockCosts.push_back(analyze_BB(costBuilder, block));
+        blockCosts.push_back(analyze_BB(costBuilder, block, gpu));
     }
     return costBuilder.sumCosts(blockCosts);
 }
 
-Value analyze_BB(CostIRBuilder &costBuilder, Block &BB) {
+Value analyze_BB(CostIRBuilder &costBuilder, Block &BB, const GpuSpec &gpu) {
     llvm::SmallVector<Value, 10> opCosts;
     // iterate over ops in basic block and sum
     for (auto &op : BB) {
-        auto cost = analyze_op(costBuilder, op);
+        auto cost = analyze_op(costBuilder, op, gpu);
         if (cost) {
             opCosts.push_back(cost.value());
         }
@@ -84,30 +92,41 @@ Value analyze_BB(CostIRBuilder &costBuilder, Block &BB) {
     return costBuilder.sumCosts(opCosts);
 }
 
-std::optional<Value> analyze_op(CostIRBuilder &costBuilder, Operation &op) {
+std::optional<Value> analyze_op(CostIRBuilder &costBuilder, Operation &op,
+                                const GpuSpec &gpu) {
     // SCF Loop Op
     if (auto forOp = dyn_cast<scf::ForOp>(op)) {
-        return analyze_for_op(costBuilder, forOp);
+        return analyze_for_op(costBuilder, forOp, gpu);
     }
     
     // Func Call Op
     if (auto callOp = dyn_cast<func::CallOp>(op)) {
         Operation *callee = SymbolTable::lookupNearestSymbolFrom(callOp.getOperation(), callOp.getCalleeAttr());
-        return analyze_function(costBuilder, *callee);
+        return analyze_function(costBuilder, *callee, gpu);
     }
 
     // GPU Kernel Launch Op
     if (auto launchOp = dyn_cast<gpu::LaunchFuncOp>(op)) {
         Operation *callee = SymbolTable::lookupNearestSymbolFrom(launchOp.getOperation(), launchOp.getKernelAttr());
-        return analyze_function(costBuilder, *callee);
+        return analyze_function(costBuilder, *callee, gpu);
     }
 
     // Other Basic Ops with cost defined in costConfig.h
-    return analyze_simple_op(costBuilder, op);
+    return analyze_simple_op(costBuilder, op, gpu);
+}
+
+std::optional<Value> analyze_tensor_op(CostIRBuilder &costBuilder,
+                                       Operation &op, const GpuSpec &gpu) {
+    (void)costBuilder;
+    (void)op;
+    (void)gpu;
+
+    return {};
 }
 
 // return cost for ops with cost defined in costConfig. 
-std::optional<Value> analyze_simple_op(CostIRBuilder &costBuilder, Operation &op) {
+std::optional<Value> analyze_simple_op(CostIRBuilder &costBuilder,
+                                       Operation &op, const GpuSpec &gpu) {
     auto simpleCostIt = SimpleOpCosts.find(op.getName().getStringRef());
     auto namedCostIt = NamedOpCosts.find(op.getName().getStringRef());
 
@@ -127,6 +146,9 @@ std::optional<Value> analyze_simple_op(CostIRBuilder &costBuilder, Operation &op
 
     if (auto loadOp = dyn_cast<xegpu::LoadNdOp>(op)) {
         return analyze_memory_op(costBuilder, *loadOp.getOperation());
+    }
+    if (auto tensorCost = analyze_tensor_op(costBuilder, op, gpu)) {
+        return tensorCost;
     }
     // No cost is set for the operation
     return {};

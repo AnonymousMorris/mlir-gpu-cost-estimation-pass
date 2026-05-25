@@ -5,7 +5,10 @@
 
 using namespace mlir;
 
-Value analyze_region(CostIRBuilder &costBuilder, Region &region);
+struct GpuSpec;
+
+Value analyze_region(CostIRBuilder &costBuilder, Region &region,
+                     const GpuSpec &gpu);
 
 namespace {
 
@@ -75,8 +78,9 @@ Value build_for_trip_count(CostIRBuilder &costBuilder, scf::ForOp forOp) {
 
 } // namespace
 
-Value analyze_for_op(CostIRBuilder &costBuilder, scf::ForOp forOp) {
-    Value bodyCost = analyze_region(costBuilder, forOp.getRegion());
+Value analyze_for_op(CostIRBuilder &costBuilder, scf::ForOp forOp,
+                     const GpuSpec &gpu) {
+    Value bodyCost = analyze_region(costBuilder, forOp.getRegion(), gpu);
     Value tripCount = build_for_trip_count(costBuilder, forOp);
     return costBuilder.mul(bodyCost, costBuilder.indexToCost(tripCount));
 }
