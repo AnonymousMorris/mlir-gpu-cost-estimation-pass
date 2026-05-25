@@ -2,6 +2,7 @@
 #include "CostIRBuilder.h"
 #include "Loop.h"
 #include "core.h"
+#include "triton.h"
 #include "llvm/Support/raw_ostream.h"
 #include <llvm/ADT/ArrayRef.h>
 #include <llvm/ADT/SmallVector.h>
@@ -35,7 +36,6 @@ std::optional<Value> analyze_op(CostIRBuilder &costBuilder, Operation &op,
 std::optional<Value> analyze_simple_op(CostIRBuilder &costBuilder,
                                        Operation &op, const GpuSpec &gpu);
 static bool hasTensorType(Operation &op);
-static int64_t elements_per_thread(Operation &op);
 std::optional<Value> analyze_tensor_op(CostIRBuilder &costBuilder,
                                        Operation &op, const GpuSpec &gpu);
 
@@ -123,26 +123,6 @@ std::optional<Value> analyze_op(CostIRBuilder &costBuilder, Operation &op,
     return analyze_simple_op(costBuilder, op, gpu);
 }
 
-static int64_t elements_per_thread(Operation &op) {
-    int64_t maxElemsPerThread = 1;
-
-    auto serializationForValue = [&](Value value) -> int64_t {
-        if (auto tensorType = dyn_cast<RankedTensorType>(value.getType())) {
-            return mlir::triton::gpu::getTotalElemsPerThread(tensorType);
-        }
-        return 1;
-    };
-
-    for (Value operand : op.getOperands()) {
-        maxElemsPerThread = std::max<int64_t>(maxElemsPerThread, serializationForValue(operand));
-    }
-    for (Value result : op.getResults()) {
-        maxElemsPerThread = std::max<int64_t>(maxElemsPerThread, serializationForValue(result));
-    }
-
-    return maxElemsPerThread;
-}
-
 bool hasTensorType(Operation &op) {
     auto isTensor = [](Value value) {
         return isa<RankedTensorType>(value.getType());
@@ -160,7 +140,7 @@ std::optional<Value> analyze_tensor_op(CostIRBuilder &costBuilder,
                                costBuilder.constantCost(serialization));
     }
 
-    return {};
+    return analyze_triton_tensor_op(costBuilder, op, gpu);
 }
 
 // return cost for ops with cost defined in costConfig. 

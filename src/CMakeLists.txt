@@ -35,6 +35,7 @@ add_llvm_library(
     MODULE
     pass.cpp
     core.cpp
+    triton.cpp
     CostIRBuilder.cpp
     Loop.cpp
 
