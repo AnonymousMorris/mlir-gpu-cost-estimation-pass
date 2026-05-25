@@ -12,6 +12,7 @@
 #include <mlir/Dialect/GPU/IR/GPUDialect.h>
 #include "gpuSpec.h"
 #include "mlir/Dialect/XeGPU/IR/XeGPU.h"
+#include "triton/Dialect/TritonGPU/IR/Dialect.h"
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/Builders.h>
@@ -33,6 +34,8 @@ std::optional<Value> analyze_op(CostIRBuilder &costBuilder, Operation &op,
                                 const GpuSpec &gpu);
 std::optional<Value> analyze_simple_op(CostIRBuilder &costBuilder,
                                        Operation &op, const GpuSpec &gpu);
+static bool hasTensorType(Operation &op);
+static int64_t elements_per_thread(Operation &op);
 std::optional<Value> analyze_tensor_op(CostIRBuilder &costBuilder,
                                        Operation &op, const GpuSpec &gpu);
 
@@ -111,15 +114,51 @@ std::optional<Value> analyze_op(CostIRBuilder &costBuilder, Operation &op,
         return analyze_function(costBuilder, *callee, gpu);
     }
 
+    // GPU Tensor Op
+    if (hasTensorType(op)) {
+        return analyze_tensor_op(costBuilder, op, gpu);
+    }
+
     // Other Basic Ops with cost defined in costConfig.h
     return analyze_simple_op(costBuilder, op, gpu);
 }
 
+static int64_t elements_per_thread(Operation &op) {
+    int64_t maxElemsPerThread = 1;
+
+    auto serializationForValue = [&](Value value) -> int64_t {
+        if (auto tensorType = dyn_cast<RankedTensorType>(value.getType())) {
+            return mlir::triton::gpu::getTotalElemsPerThread(tensorType);
+        }
+        return 1;
+    };
+
+    for (Value operand : op.getOperands()) {
+        maxElemsPerThread = std::max<int64_t>(maxElemsPerThread, serializationForValue(operand));
+    }
+    for (Value result : op.getResults()) {
+        maxElemsPerThread = std::max<int64_t>(maxElemsPerThread, serializationForValue(result));
+    }
+
+    return maxElemsPerThread;
+}
+
+bool hasTensorType(Operation &op) {
+    auto isTensor = [](Value value) {
+        return isa<RankedTensorType>(value.getType());
+    };
+
+    return llvm::any_of(op.getOperands(), isTensor) ||
+        llvm::any_of(op.getResults(), isTensor);
+}
+
 std::optional<Value> analyze_tensor_op(CostIRBuilder &costBuilder,
                                        Operation &op, const GpuSpec &gpu) {
-    (void)costBuilder;
-    (void)op;
-    (void)gpu;
+    if (auto simpleValue = analyze_simple_op(costBuilder, op, gpu)) {
+        int64_t serialization = elements_per_thread(op);
+        return costBuilder.mul(*simpleValue,
+                               costBuilder.constantCost(serialization));
+    }
 
     return {};
 }
@@ -146,9 +185,6 @@ std::optional<Value> analyze_simple_op(CostIRBuilder &costBuilder,
 
     if (auto loadOp = dyn_cast<xegpu::LoadNdOp>(op)) {
         return analyze_memory_op(costBuilder, *loadOp.getOperation());
-    }
-    if (auto tensorCost = analyze_tensor_op(costBuilder, op, gpu)) {
-        return tensorCost;
     }
     // No cost is set for the operation
     return {};
