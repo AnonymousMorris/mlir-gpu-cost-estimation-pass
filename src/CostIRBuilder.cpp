@@ -98,8 +98,22 @@ Value CostIRBuilder::indexConstant(int64_t value) {
 }
 
 Value CostIRBuilder::indexToCost(Value value) {
-    Value asI64 = arith::IndexCastUIOp::create(builder, loc, builder.getI64Type(),
-                                              value);
+    Type i64Type = builder.getI64Type();
+    Value asI64 = value;
+
+    Type valueType = value.getType();
+    if (isa<IndexType>(valueType)) {
+        asI64 = arith::IndexCastUIOp::create(builder, loc, i64Type, value);
+    } 
+    else if (auto intType = dyn_cast<IntegerType>(valueType)) {
+        if (intType.getWidth() < 64) {
+            asI64 = arith::ExtUIOp::create(builder, loc, i64Type, value);
+        } else if (intType.getWidth() > 64) {
+            asI64 = arith::TruncIOp::create(builder, loc, i64Type, value);
+        }
+    } else {
+        llvm::report_fatal_error("expected integer or index cost value");
+    }
     return arith::UIToFPOp::create(builder, loc, costType, asI64);
 }
 
