@@ -18,7 +18,10 @@ bool can_clone_bound_op(Operation *op) {
 }
 
 std::string source_argument_name(BlockArgument argument) {
-    return std::to_string(argument.getArgNumber());
+    if (auto nameLoc = argument.getLoc()->findInstanceOf<NameLoc>()) {
+        return nameLoc.getName().str();
+    }
+    return "arg" + std::to_string(argument.getArgNumber());
 }
 
 FailureOr<Value> clone_bound_expr(CostIRBuilder &costBuilder, Value value,

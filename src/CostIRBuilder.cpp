@@ -49,6 +49,20 @@ Value CostIRBuilder::addArgument(llvm::StringRef name, Type type) {
     auto newFuncType = builder.getFunctionType(inputs, {costType});
     costFunc.setFunctionType(newFuncType);
 
+    llvm::SmallVector<DictionaryAttr> argAttrs;
+    if (ArrayAttr existingArgAttrs = costFunc.getArgAttrsAttr()) {
+        for (Attribute attr : existingArgAttrs) {
+            argAttrs.push_back(cast<DictionaryAttr>(attr));
+        }
+    }
+    while (argAttrs.size() < costFunc.getNumArguments()) {
+        argAttrs.push_back(builder.getDictionaryAttr({}));
+    }
+    argAttrs[cast<BlockArgument>(argument).getArgNumber()] =
+        builder.getDictionaryAttr(
+            {builder.getNamedAttr("cost.name", builder.getStringAttr(name))});
+    costFunc.setAllArgAttrs(argAttrs);
+
     arguments.try_emplace(name, argument);
     return argument;
 }
