@@ -12,4 +12,4 @@ std::optional<mlir::Value> analyze_triton_tensor_op(CostIRBuilder &costBuilder,
                                                     const GpuSpec &gpu);
 
 int64_t elements_per_thread(mlir::Operation &op);
-int64_t elements_per_thread(mlir::Value &value);
+int64_t elements_per_thread(mlir::Value value);
