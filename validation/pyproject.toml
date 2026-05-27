@@ -1,0 +1,26 @@
+[project]
+name = "cost-validation"
+version = "0.1.0"
+description = "Minimal parser for generated MLIR cost expressions"
+requires-python = ">=3.14"
+dependencies = [
+    "mlir-python-bindings==20260429+652700b4c",
+    "sympy>=1.13.0",
+]
+
+[tool.uv.sources]
+mlir_python_bindings = { index = "eudsl" }
+
+[[tool.uv.index]]
+name = "eudsl"
+url = "https://llvm.github.io/eudsl"
+explicit = true
+format = "flat"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
