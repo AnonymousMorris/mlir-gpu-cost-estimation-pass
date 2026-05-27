@@ -1,0 +1,19 @@
+[project]
+name = "triton-cost-analysis"
+version = "0.1.0"
+description = "Plot Triton TTGIR cost estimates"
+requires-python = ">=3.11"
+dependencies = [
+    "matplotlib>=3.9.0",
+    "numpy>=2.0.0",
+    "sympy>=1.13.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
