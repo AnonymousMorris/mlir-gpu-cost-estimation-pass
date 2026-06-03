@@ -20,6 +20,7 @@ public:
     Value add(Value lhs, Value rhs);
     Value sub(Value lhs, Value rhs);
     Value mul(Value lhs, Value rhs);
+    Value max(Value lhs, Value rhs);
     Value indexConstant(int64_t value);
     Value indexToCost(Value value);
     Value sumCosts(llvm::ArrayRef<Value> costs);

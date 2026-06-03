@@ -4,6 +4,7 @@
 #include "core.h"
 #include "triton.h"
 #include "llvm/Support/raw_ostream.h"
+#include <cstdlib>
 #include <llvm/ADT/ArrayRef.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Support/Casting.h>
@@ -102,6 +103,17 @@ std::optional<Value> analyze_op(CostIRBuilder &costBuilder, Operation &op,
     // SCF Loop Op
     if (auto forOp = dyn_cast<scf::ForOp>(op)) {
         return analyze_for_op(costBuilder, forOp, gpu);
+    }
+
+    if (auto ifOp = dyn_cast<scf::IfOp>(op)) {
+        Value then_cost = analyze_region(costBuilder, ifOp.getThenRegion(), gpu);
+        Value else_cost = analyze_region(costBuilder, ifOp.getElseRegion(), gpu);
+        return costBuilder.max(then_cost, else_cost);
+    }
+
+    if (isa<scf::WhileOp>(op)) {
+        // TODO: Do proper analysis later. 
+        exit(-1);
     }
     
     // Func Call Op

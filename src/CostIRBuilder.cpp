@@ -107,6 +107,11 @@ Value CostIRBuilder::mul(Value lhs, Value rhs) {
     return arith::MulIOp::create(builder, loc, lhs, rhs);
 }
 
+Value CostIRBuilder::max(Value lhs, Value rhs) {
+    assert(lhs.getType() == rhs.getType());
+    return arith::MaximumFOp::create(builder, loc, lhs, rhs);
+}
+
 Value CostIRBuilder::indexConstant(int64_t value) {
     return arith::ConstantIndexOp::create(builder, loc, value);
 }
