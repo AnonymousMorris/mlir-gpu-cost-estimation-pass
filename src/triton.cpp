@@ -1,5 +1,6 @@
 #include "CostConfig.h"
 #include "CostIRBuilder.h"
+#include "core.h"
 #include "gpuSpec.h"
 #include "triton.h"
 
@@ -11,6 +12,9 @@
 #include <optional>
 
 using namespace mlir;
+
+Value analyze_region(CostIRBuilder &costBuilder, Region &region,
+                     const GpuSpec &gpu);
 
 int64_t elements_per_thread(Value value) {
     if (auto tensorType = dyn_cast<RankedTensorType>(value.getType())) {
@@ -191,6 +195,18 @@ std::optional<Value> analyze_triton_tensor_op(CostIRBuilder &costBuilder,
 
     if (auto convertLayoutOp = dyn_cast<triton::gpu::ConvertLayoutOp>(op)) {
         return analyze_ttg_convert_layout(costBuilder, convertLayoutOp, gpu);
+    }
+
+    auto costIt = NamedTensorOpCost.find(op.getName().getStringRef());
+    if (costIt != NamedTensorOpCost.end()) {
+        Value cost = scale_cost(costBuilder,
+                                std::get<llvm::StringRef>(costIt->second),
+                                elements_per_thread(op));
+        for (Region &region : op.getRegions()) {
+            cost = costBuilder.add(cost,
+                                   analyze_region(costBuilder, region, gpu));
+        }
+        return cost;
     }
 
     return {};

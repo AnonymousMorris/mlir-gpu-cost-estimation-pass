@@ -11,6 +11,7 @@
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/GPU/IR/GPUDialect.h>
+#include <mlir/Dialect/SCF/IR/SCF.h>
 #include "gpuSpec.h"
 #include "mlir/Dialect/XeGPU/IR/XeGPU.h"
 #include "triton/Dialect/TritonGPU/IR/Dialect.h"
@@ -36,6 +37,7 @@ std::optional<Value> analyze_op(CostIRBuilder &costBuilder, Operation &op,
 std::optional<Value> analyze_simple_op(CostIRBuilder &costBuilder,
                                        Operation &op, const GpuSpec &gpu);
 static bool hasTensorType(Operation &op);
+static bool hasNamedTensorCost(Operation &op);
 std::optional<Value> analyze_tensor_op(CostIRBuilder &costBuilder,
                                        Operation &op, const GpuSpec &gpu);
 
@@ -114,13 +116,19 @@ std::optional<Value> analyze_op(CostIRBuilder &costBuilder, Operation &op,
         return analyze_function(costBuilder, *callee, gpu);
     }
 
-    // GPU Tensor Op
-    if (hasTensorType(op)) {
+    // GPU Tensor/TTGIR op
+    if (hasTensorType(op) || hasNamedTensorCost(op)) {
         return analyze_tensor_op(costBuilder, op, gpu);
     }
 
     // Other Basic Ops with cost defined in costConfig.h
-    return analyze_simple_op(costBuilder, op, gpu);
+    if (auto cost = analyze_simple_op(costBuilder, op, gpu)) {
+        return cost;
+    }
+
+    op.emitError("unknown op in cost analysis: ")
+        << op.getName().getStringRef();
+    llvm::report_fatal_error("unknown op in cost analysis");
 }
 
 bool hasTensorType(Operation &op) {
@@ -130,6 +138,10 @@ bool hasTensorType(Operation &op) {
 
     return llvm::any_of(op.getOperands(), isTensor) ||
         llvm::any_of(op.getResults(), isTensor);
+}
+
+bool hasNamedTensorCost(Operation &op) {
+    return NamedTensorOpCost.contains(op.getName().getStringRef());
 }
 
 std::optional<Value> analyze_tensor_op(CostIRBuilder &costBuilder,
