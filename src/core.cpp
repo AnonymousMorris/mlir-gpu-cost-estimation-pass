@@ -2,7 +2,11 @@
 #include "CostIRBuilder.h"
 #include "Loop.h"
 #include "core.h"
+#include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "triton.h"
+#include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/bit.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstdlib>
 #include <llvm/ADT/ArrayRef.h>
@@ -41,6 +45,8 @@ static bool hasTensorType(Operation &op);
 static bool hasNamedTensorCost(Operation &op);
 std::optional<Value> analyze_tensor_op(CostIRBuilder &costBuilder,
                                        Operation &op, const GpuSpec &gpu);
+static int getCostBitWidth(Operation &op);
+static bool needsCostBitWidth(llvm::StringRef costName);
 
 Value analyze_function(CostIRBuilder &costBuilder, Operation &op,
                        const GpuSpec &gpu) {
@@ -156,6 +162,19 @@ bool hasNamedTensorCost(Operation &op) {
     return NamedTensorOpCost.contains(op.getName().getStringRef());
 }
 
+int getCostBitWidth(Operation &op) {
+    Type type = op.getResult(0).getType();
+    if (auto shapedType = dyn_cast<ShapedType>(type)) {
+        type = shapedType.getElementType();
+    }
+    return type.getIntOrFloatBitWidth();
+}
+
+bool needsCostBitWidth(llvm::StringRef costName) {
+    return costName == "arith.addf" || costName == "arith.subf" ||
+           costName == "arith.mulf" || costName == "arith.fma";
+}
+
 std::optional<Value> analyze_tensor_op(CostIRBuilder &costBuilder,
                                        Operation &op, const GpuSpec &gpu) {
     if (auto simpleValue = analyze_simple_op(costBuilder, op, gpu)) {
@@ -184,7 +203,14 @@ std::optional<Value> analyze_simple_op(CostIRBuilder &costBuilder,
     // Return an named variable cost for operation
     if (namedCostIt != NamedOpCosts.end()) {
         const CostSpec &cost = namedCostIt->second;
-        return costBuilder.addCostArgument(std::get<llvm::StringRef>(cost));
+        const llvm::StringRef costName = std::get<llvm::StringRef>(cost);
+        if (needsCostBitWidth(costName)) {
+            int bitWidth = getCostBitWidth(op);
+            std::string costNameWithBits =
+                costName.str() + std::to_string(bitWidth);
+            return costBuilder.addCostArgument(costNameWithBits);
+        }
+        return costBuilder.addCostArgument(costName);
     }
 
     if (auto loadOp = dyn_cast<xegpu::LoadNdOp>(op)) {

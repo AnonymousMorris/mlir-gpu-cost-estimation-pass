@@ -15,6 +15,10 @@ using CostConfig = llvm::StringMap<CostSpec>;
 // name.
 // {opname, F64 cost} or {opname, cost_name}
 inline const CostConfig SimpleOpCosts = {
+    {"arith.constant", 0.0},
+    {"scf.yield", 0.0},
+    {"tt.get_program_id", 0.0},
+    {"tt.return", 0.0},
     // {"xegpu.create_nd_tdesc", 0.0},
     // {"arith.addf", 1.0},
     // {"arith.addi", 1.0},
@@ -34,11 +38,17 @@ inline const CostConfig SimpleOpCosts = {
 inline const CostConfig NamedOpCosts = {
     {"arith.addf", "arith.addf"},
     {"arith.addi", "arith.addi"},
+    {"arith.andi", "arith.andi"},
     {"arith.cmpi", "arith.cmpi"},
+    {"arith.divsi", "arith.divsi"},
     {"arith.divui", "arith.divui"},
     {"arith.fma", "arith.fma"},
+    {"arith.minsi", "arith.minsi"},
+    {"arith.mulf", "arith.mulf"},
     {"arith.muli", "arith.muli"},
+    {"arith.remsi", "arith.remsi"},
     {"arith.remui", "arith.remui"},
+    {"arith.subi", "arith.subi"},
     {"arith.truncf", "arith.truncf"},
     {"arith.uitofp", "arith.uitofp"},
     {"index.castu", "index.castu"},
