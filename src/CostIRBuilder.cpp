@@ -1,6 +1,7 @@
 #include "CostIRBuilder.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/IR/Matchers.h"
 #include <cassert>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/IR/Location.h>
@@ -24,10 +25,25 @@ CostIRBuilder::CostIRBuilder(MLIRContext *ctx)
 
     entry = costFunc.addEntryBlock();
     builder.setInsertionPointToStart(entry);
+
+    for(Value &cost : typeCosts) {
+        cost = zero();
+    }
 }
 
 Value CostIRBuilder::zero() {
     return arith::getZeroConstant(builder, loc, costType);
+}
+
+CostVector CostIRBuilder::zeroVector() {
+    Value zero = this->zero();
+    return CostVector{zero, zero, zero, zero, zero};
+}
+
+CostVector CostIRBuilder::costVector(CostType type, Value cost) {
+    CostVector costs = zeroVector();
+    costs[static_cast<size_t>(type)] = cost;
+    return costs;
 }
 
 Value CostIRBuilder::constantCost(double value) {
@@ -83,6 +99,15 @@ Value CostIRBuilder::add(Value lhs, Value rhs) {
     return arith::AddIOp::create(builder, loc, lhs, rhs);
 }
 
+CostVector CostIRBuilder::add(CostVector lhsVector, CostVector rhsVector) {
+    for (int idx = 0; idx < 5; idx++) {
+        Value &lhs = lhsVector[idx];
+        Value &rhs = rhsVector[idx];
+        rhs = add(lhs, rhs);
+    }
+    return rhsVector;
+}
+
 Value CostIRBuilder::sub(Value lhs, Value rhs) {
     Type type = lhs.getType();
     assert(type == rhs.getType() && "add operands must have the same type");
@@ -107,9 +132,25 @@ Value CostIRBuilder::mul(Value lhs, Value rhs) {
     return arith::MulIOp::create(builder, loc, lhs, rhs);
 }
 
+CostVector CostIRBuilder::mul(CostVector lhsVector, Value rhs) {
+    for (Value &lhs : lhsVector) {
+        if (!mlir::matchPattern(lhs, m_AnyZeroFloat())) {
+            lhs = mul(lhs, rhs);
+        }
+    }
+    return lhsVector;
+}
+
 Value CostIRBuilder::max(Value lhs, Value rhs) {
     assert(lhs.getType() == rhs.getType());
     return arith::MaximumFOp::create(builder, loc, lhs, rhs);
+}
+
+CostVector CostIRBuilder::max(CostVector lhsVector, CostVector rhsVector) {
+    for (int idx = 0; idx < 5; idx++) {
+        rhsVector[idx] = max(lhsVector[idx], rhsVector[idx]);
+    }
+    return rhsVector;
 }
 
 Value CostIRBuilder::indexConstant(int64_t value) {
@@ -147,9 +188,28 @@ Value CostIRBuilder::sumCosts(llvm::ArrayRef<Value> costs) {
     return sum;
 }
 
+CostVector CostIRBuilder::sumCosts(llvm::ArrayRef<CostVector> costs) {
+    CostVector sum = zeroVector();
+
+    for (CostVector cost : costs) {
+        sum = add(sum, cost);
+    }
+
+    return sum;
+}
+
 void CostIRBuilder::finalize(Value result) {
     builder.setInsertionPointToEnd(entry);
     func::ReturnOp::create(builder, loc, result);
+}
+
+void CostIRBuilder::finalize(CostVector resultVec) {
+    Value maxValue = zero();
+    for (Value &result : resultVec) {
+        maxValue = max(result, maxValue);
+    }
+    builder.setInsertionPointToEnd(entry);
+    func::ReturnOp::create(builder, loc, maxValue);
 }
 
 void CostIRBuilder::simplify() {

@@ -33,42 +33,42 @@
 
 using namespace mlir;
 
-Value analyze_BB(CostIRBuilder &costBuilder, Block &BB, const GpuSpec &gpu);
-Value analyze_region(CostIRBuilder &costBuilder, Region &region,
-                     const GpuSpec &gpu);
-Value analyze_memory_op(CostIRBuilder &costBuilder, Operation &op);
-std::optional<Value> analyze_op(CostIRBuilder &costBuilder, Operation &op,
-                                const GpuSpec &gpu);
-std::optional<Value> analyze_simple_op(CostIRBuilder &costBuilder,
-                                       Operation &op, const GpuSpec &gpu);
+CostVector analyze_BB(CostIRBuilder &costBuilder, Block &BB,
+                      const GpuSpec &gpu);
+CostVector analyze_region(CostIRBuilder &costBuilder, Region &region,
+                          const GpuSpec &gpu);
+CostVector analyze_memory_op(CostIRBuilder &costBuilder, Operation &op);
+std::optional<CostVector> analyze_op(CostIRBuilder &costBuilder, Operation &op,
+                                     const GpuSpec &gpu);
+std::optional<CostVector> analyze_simple_op(CostIRBuilder &costBuilder,
+                                            Operation &op, const GpuSpec &gpu);
 static bool hasTensorType(Operation &op);
 static bool hasNamedTensorCost(Operation &op);
-std::optional<Value> analyze_tensor_op(CostIRBuilder &costBuilder,
-                                       Operation &op, const GpuSpec &gpu);
+std::optional<CostVector> analyze_tensor_op(CostIRBuilder &costBuilder,
+                                            Operation &op, const GpuSpec &gpu);
 static int getCostBitWidth(Operation &op);
 static bool needsCostBitWidth(llvm::StringRef costName);
 
-Value analyze_function(CostIRBuilder &costBuilder, Operation &op,
-                       const GpuSpec &gpu) {
-    llvm::SmallVector<Value, 10> regionCosts;
+CostVector analyze_function(CostIRBuilder &costBuilder, Operation &op,
+                            const GpuSpec &gpu) {
+    llvm::SmallVector<CostVector, 10> regionCosts;
 
     for (Region &region : op.getRegions()) {
         regionCosts.push_back(analyze_region(costBuilder, region, gpu));
     }
 
-    Value cost = costBuilder.sumCosts(regionCosts);
-    return cost;
+    return costBuilder.sumCosts(regionCosts);
 }
 
 void analyze_cost(Operation &op, llvm::raw_ostream &os, const GpuSpec &gpu) {
     CostIRBuilder costBuilder(op.getContext());
-    llvm::SmallVector<Value, 10> regionCosts;
+    llvm::SmallVector<CostVector, 10> regionCosts;
 
     for (Region &region : op.getRegions()) {
         regionCosts.push_back(analyze_region(costBuilder, region, gpu));
     }
 
-    Value cost = costBuilder.sumCosts(regionCosts);
+    CostVector cost = costBuilder.sumCosts(regionCosts);
     costBuilder.finalize(cost);
     costBuilder.simplify();
 
@@ -83,17 +83,18 @@ void analyze_cost(Operation &op, llvm::raw_ostream &os, const GpuSpec &gpu) {
     os << "\n";
 }
 
-Value analyze_region(CostIRBuilder &costBuilder, Region &region,
-                     const GpuSpec &gpu) {
-    llvm::SmallVector<Value, 10> blockCosts;
+CostVector analyze_region(CostIRBuilder &costBuilder, Region &region,
+                          const GpuSpec &gpu) {
+    llvm::SmallVector<CostVector, 10> blockCosts;
     for (Block &block : region) {
         blockCosts.push_back(analyze_BB(costBuilder, block, gpu));
     }
     return costBuilder.sumCosts(blockCosts);
 }
 
-Value analyze_BB(CostIRBuilder &costBuilder, Block &BB, const GpuSpec &gpu) {
-    llvm::SmallVector<Value, 10> opCosts;
+CostVector analyze_BB(CostIRBuilder &costBuilder, Block &BB,
+                      const GpuSpec &gpu) {
+    llvm::SmallVector<CostVector, 10> opCosts;
     // iterate over ops in basic block and sum
     for (auto &op : BB) {
         auto cost = analyze_op(costBuilder, op, gpu);
@@ -104,16 +105,18 @@ Value analyze_BB(CostIRBuilder &costBuilder, Block &BB, const GpuSpec &gpu) {
     return costBuilder.sumCosts(opCosts);
 }
 
-std::optional<Value> analyze_op(CostIRBuilder &costBuilder, Operation &op,
-                                const GpuSpec &gpu) {
+std::optional<CostVector> analyze_op(CostIRBuilder &costBuilder, Operation &op,
+                                     const GpuSpec &gpu) {
     // SCF Loop Op
     if (auto forOp = dyn_cast<scf::ForOp>(op)) {
         return analyze_for_op(costBuilder, forOp, gpu);
     }
 
     if (auto ifOp = dyn_cast<scf::IfOp>(op)) {
-        Value then_cost = analyze_region(costBuilder, ifOp.getThenRegion(), gpu);
-        Value else_cost = analyze_region(costBuilder, ifOp.getElseRegion(), gpu);
+        CostVector then_cost =
+            analyze_region(costBuilder, ifOp.getThenRegion(), gpu);
+        CostVector else_cost =
+            analyze_region(costBuilder, ifOp.getElseRegion(), gpu);
         return costBuilder.max(then_cost, else_cost);
     }
 
@@ -147,6 +150,7 @@ std::optional<Value> analyze_op(CostIRBuilder &costBuilder, Operation &op,
     op.emitError("unknown op in cost analysis: ")
         << op.getName().getStringRef();
     llvm::report_fatal_error("unknown op in cost analysis");
+    // exit(-1);
 }
 
 bool hasTensorType(Operation &op) {
@@ -175,8 +179,8 @@ bool needsCostBitWidth(llvm::StringRef costName) {
            costName == "arith.mulf" || costName == "arith.fma";
 }
 
-std::optional<Value> analyze_tensor_op(CostIRBuilder &costBuilder,
-                                       Operation &op, const GpuSpec &gpu) {
+std::optional<CostVector> analyze_tensor_op(CostIRBuilder &costBuilder,
+                                            Operation &op, const GpuSpec &gpu) {
     if (auto simpleValue = analyze_simple_op(costBuilder, op, gpu)) {
         int64_t serialization = elements_per_thread(op);
         return costBuilder.mul(*simpleValue,
@@ -187,8 +191,8 @@ std::optional<Value> analyze_tensor_op(CostIRBuilder &costBuilder,
 }
 
 // return cost for ops with cost defined in costConfig. 
-std::optional<Value> analyze_simple_op(CostIRBuilder &costBuilder,
-                                       Operation &op, const GpuSpec &gpu) {
+std::optional<CostVector> analyze_simple_op(CostIRBuilder &costBuilder,
+                                            Operation &op, const GpuSpec &gpu) {
     auto simpleCostIt = SimpleOpCosts.find(op.getName().getStringRef());
     auto namedCostIt = NamedOpCosts.find(op.getName().getStringRef());
 
@@ -196,7 +200,8 @@ std::optional<Value> analyze_simple_op(CostIRBuilder &costBuilder,
     if (simpleCostIt != SimpleOpCosts.end()) {
         const CostSpec &cost = simpleCostIt->second;
         if (const auto *constantCost = std::get_if<double>(&cost)) {
-            return costBuilder.constantCost(*constantCost);
+            return costBuilder.costVector(CostType::FP32,
+                                          costBuilder.constantCost(*constantCost));
         }
     }
 
@@ -208,9 +213,12 @@ std::optional<Value> analyze_simple_op(CostIRBuilder &costBuilder,
             int bitWidth = getCostBitWidth(op);
             std::string costNameWithBits =
                 costName.str() + std::to_string(bitWidth);
-            return costBuilder.addCostArgument(costNameWithBits);
+            CostType type = bitWidth == 64 ? CostType::FP64 : CostType::FP32;
+            return costBuilder.costVector(
+                type, costBuilder.addCostArgument(costNameWithBits));
         }
-        return costBuilder.addCostArgument(costName);
+        return costBuilder.costVector(CostType::FP32,
+                                      costBuilder.addCostArgument(costName));
     }
 
     if (auto loadOp = dyn_cast<xegpu::LoadNdOp>(op)) {
@@ -225,7 +233,7 @@ std::optional<Value> analyze_simple_op(CostIRBuilder &costBuilder,
 // (1 - p1) * p2 * L2_cost + 
 // (1 - p1) * (1 - p2) * p3 * L3_cost + 
 // (1 - p1) * (1 - p2) * (1 - p3) * Global_cost
-Value analyze_memory_op(CostIRBuilder &costBuilder, Operation &op) {
+CostVector analyze_memory_op(CostIRBuilder &costBuilder, Operation &op) {
     Value one = costBuilder.constantCost(1.0);
     Value p1 = costBuilder.addCostArgument("residency.p1");
     Value l1_cost = costBuilder.addCostArgument("residency.l1_cost");
@@ -254,5 +262,5 @@ Value analyze_memory_op(CostIRBuilder &costBuilder, Operation &op) {
     terms.push_back(l3_term);
     terms.push_back(global_term);
 
-    return costBuilder.sumCosts(terms);
+    return costBuilder.costVector(CostType::MEMORY, costBuilder.sumCosts(terms));
 }

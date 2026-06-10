@@ -4,7 +4,7 @@ project(Skeleton LANGUAGES CXX C)
 # LLVM uses C++17.
 set(CMAKE_CXX_STANDARD 17)
 
-set(TRITON_LLVM_DIR "/home/morris/.triton/llvm/llvm-87717bf9-ubuntu-x64" CACHE PATH "Path to Triton's LLVM/MLIR install")
+set(TRITON_LLVM_DIR "/home/morris/.triton/llvm/llvm-ubuntu-x64" CACHE PATH "Path to Triton's LLVM/MLIR install")
 set(LLVM_DIR "${TRITON_LLVM_DIR}/lib/cmake/llvm" CACHE PATH "Path to LLVMConfig.cmake" FORCE)
 set(MLIR_DIR "${TRITON_LLVM_DIR}/lib/cmake/mlir" CACHE PATH "Path to MLIRConfig.cmake" FORCE)
 

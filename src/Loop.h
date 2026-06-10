@@ -6,5 +6,5 @@
 
 struct GpuSpec;
 
-mlir::Value analyze_for_op(CostIRBuilder &costBuilder, mlir::scf::ForOp forOp,
-                           const GpuSpec &gpu);
+CostVector analyze_for_op(CostIRBuilder &costBuilder, mlir::scf::ForOp forOp,
+                          const GpuSpec &gpu);
