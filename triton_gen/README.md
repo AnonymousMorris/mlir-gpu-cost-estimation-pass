@@ -36,9 +36,14 @@ Or, if you installed with pip:
 python main.py
 ```
 
+The script checkpoints completed cases to `results/run_state.json.tmp`. If a run
+is interrupted, rerun it with the same timing options to continue from the next
+case. To discard the checkpoint and start over, pass `--restart`.
+
 The script writes:
 
 - `results/result.json`: timing records grouped by kernel name
+- `results/run_state.json.tmp`: resumable state for an incomplete run
 - `results/ttgir/*.ttgir`: one TTGIR file per kernel argument configuration
 
 Each successful timing record stores:
