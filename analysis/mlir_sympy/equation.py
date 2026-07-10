@@ -4,7 +4,7 @@ from mlir import ir
 from mlir.dialects import arith, func
 import sympy
 
-from cost_mlir import CostFunction
+from mlir_sympy.cost_mlir import CostFunction
 
 
 def build_equations(cost_function: CostFunction) -> dict[str, sympy.Expr]:
@@ -31,12 +31,36 @@ def build_equations(cost_function: CostFunction) -> dict[str, sympy.Expr]:
             values[op.result] = values[op.lhs] + values[op.rhs]
             continue
 
+        if isinstance(op, arith.AddIOp):
+            values[op.result] = values[op.lhs] + values[op.rhs]
+            continue
+
         if isinstance(op, arith.SubFOp):
+            values[op.result] = values[op.lhs] - values[op.rhs]
+            continue
+
+        if isinstance(op, arith.SubIOp):
             values[op.result] = values[op.lhs] - values[op.rhs]
             continue
 
         if isinstance(op, arith.MulFOp):
             values[op.result] = values[op.lhs] * values[op.rhs]
+            continue
+
+        if isinstance(op, arith.MulIOp):
+            values[op.result] = values[op.lhs] * values[op.rhs]
+            continue
+
+        if isinstance(op, arith.CeilDivUIOp):
+            values[op.result] = sympy.ceiling(values[op.lhs] / values[op.rhs])
+            continue
+
+        if isinstance(op, (arith.IndexCastOp, arith.IndexCastUIOp, arith.ExtUIOp, arith.TruncIOp, arith.UIToFPOp)):
+            values[op.result] = values[op.operands[0]]
+            continue
+
+        if isinstance(op, arith.MaximumFOp):
+            values[op.result] = sympy.Max(values[op.lhs], values[op.rhs])
             continue
 
         raise ValueError(f"unsupported op: {op.operation.name}")

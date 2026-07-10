@@ -8,6 +8,13 @@
 #include <mlir/Pass/PassManager.h>
 #include <mlir/Transforms/Passes.h>
 
+namespace {
+
+constexpr std::array<llvm::StringLiteral, CostTypeCount> CostTypeNames = {
+    "fp32", "fp64", "sfu", "tensor", "memory"};
+
+} // namespace
+
 CostIRBuilder::CostIRBuilder(MLIRContext *ctx)
     : builder(ctx),
       loc(UnknownLoc::get(ctx)),
@@ -20,15 +27,19 @@ CostIRBuilder::CostIRBuilder(MLIRContext *ctx)
 
     builder.setInsertionPointToStart(module.getBody());
 
-    auto funcType = builder.getFunctionType({}, {costType});
+    llvm::SmallVector<Type, CostTypeCount> resultTypes(CostTypeCount, costType);
+    auto funcType = builder.getFunctionType({}, resultTypes);
     costFunc = func::FuncOp::create(builder, loc, "__cost_expr", funcType);
+
+    llvm::SmallVector<DictionaryAttr, CostTypeCount> resultAttrs;
+    for (llvm::StringRef name : CostTypeNames) {
+        resultAttrs.push_back(builder.getDictionaryAttr(
+            {builder.getNamedAttr("cost.name", builder.getStringAttr(name))}));
+    }
+    costFunc.setAllResultAttrs(resultAttrs);
 
     entry = costFunc.addEntryBlock();
     builder.setInsertionPointToStart(entry);
-
-    for(Value &cost : typeCosts) {
-        cost = zero();
-    }
 }
 
 Value CostIRBuilder::zero() {
@@ -37,7 +48,9 @@ Value CostIRBuilder::zero() {
 
 CostVector CostIRBuilder::zeroVector() {
     Value zero = this->zero();
-    return CostVector{zero, zero, zero, zero, zero};
+    CostVector costs;
+    costs.fill(zero);
+    return costs;
 }
 
 CostVector CostIRBuilder::costVector(CostType type, Value cost) {
@@ -62,7 +75,8 @@ Value CostIRBuilder::addArgument(llvm::StringRef name, Type type) {
     Value argument = entry->addArgument(type, nameLoc);
 
     llvm::SmallVector<Type> inputs(entry->getArgumentTypes());
-    auto newFuncType = builder.getFunctionType(inputs, {costType});
+    auto newFuncType =
+        builder.getFunctionType(inputs, costFunc.getResultTypes());
     costFunc.setFunctionType(newFuncType);
 
     llvm::SmallVector<DictionaryAttr> argAttrs;
@@ -100,7 +114,7 @@ Value CostIRBuilder::add(Value lhs, Value rhs) {
 }
 
 CostVector CostIRBuilder::add(CostVector lhsVector, CostVector rhsVector) {
-    for (int idx = 0; idx < 5; idx++) {
+    for (size_t idx = 0; idx < CostTypeCount; idx++) {
         Value &lhs = lhsVector[idx];
         Value &rhs = rhsVector[idx];
         rhs = add(lhs, rhs);
@@ -147,7 +161,7 @@ Value CostIRBuilder::max(Value lhs, Value rhs) {
 }
 
 CostVector CostIRBuilder::max(CostVector lhsVector, CostVector rhsVector) {
-    for (int idx = 0; idx < 5; idx++) {
+    for (size_t idx = 0; idx < CostTypeCount; idx++) {
         rhsVector[idx] = max(lhsVector[idx], rhsVector[idx]);
     }
     return rhsVector;
@@ -198,18 +212,9 @@ CostVector CostIRBuilder::sumCosts(llvm::ArrayRef<CostVector> costs) {
     return sum;
 }
 
-void CostIRBuilder::finalize(Value result) {
-    builder.setInsertionPointToEnd(entry);
-    func::ReturnOp::create(builder, loc, result);
-}
-
 void CostIRBuilder::finalize(CostVector resultVec) {
-    Value maxValue = zero();
-    for (Value &result : resultVec) {
-        maxValue = max(result, maxValue);
-    }
     builder.setInsertionPointToEnd(entry);
-    func::ReturnOp::create(builder, loc, maxValue);
+    func::ReturnOp::create(builder, loc, resultVec);
 }
 
 void CostIRBuilder::simplify() {

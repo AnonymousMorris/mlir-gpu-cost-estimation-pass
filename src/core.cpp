@@ -48,6 +48,7 @@ std::optional<CostVector> analyze_tensor_op(CostIRBuilder &costBuilder,
                                             Operation &op, const GpuSpec &gpu);
 static int getCostBitWidth(Operation &op);
 static bool needsCostBitWidth(llvm::StringRef costName);
+static CostType simpleCostType(Operation &op, llvm::StringRef costName);
 
 CostVector analyze_function(CostIRBuilder &costBuilder, Operation &op,
                             const GpuSpec &gpu) {
@@ -179,6 +180,23 @@ bool needsCostBitWidth(llvm::StringRef costName) {
            costName == "arith.mulf" || costName == "arith.fma";
 }
 
+CostType simpleCostType(Operation &op, llvm::StringRef costName) {
+    if (costName.starts_with("math.")) {
+        return CostType::SFU;
+    }
+    if (op.getNumResults() != 0) {
+        Type type = op.getResult(0).getType();
+        if (auto shapedType = dyn_cast<ShapedType>(type)) {
+            type = shapedType.getElementType();
+        }
+        if (auto floatType = dyn_cast<FloatType>(type);
+            floatType && floatType.getWidth() == 64) {
+            return CostType::FP64;
+        }
+    }
+    return CostType::FP32;
+}
+
 std::optional<CostVector> analyze_tensor_op(CostIRBuilder &costBuilder,
                                             Operation &op, const GpuSpec &gpu) {
     if (auto simpleValue = analyze_simple_op(costBuilder, op, gpu)) {
@@ -213,11 +231,11 @@ std::optional<CostVector> analyze_simple_op(CostIRBuilder &costBuilder,
             int bitWidth = getCostBitWidth(op);
             std::string costNameWithBits =
                 costName.str() + std::to_string(bitWidth);
-            CostType type = bitWidth == 64 ? CostType::FP64 : CostType::FP32;
             return costBuilder.costVector(
-                type, costBuilder.addCostArgument(costNameWithBits));
+                simpleCostType(op, costName),
+                costBuilder.addCostArgument(costNameWithBits));
         }
-        return costBuilder.costVector(CostType::FP32,
+        return costBuilder.costVector(simpleCostType(op, costName),
                                       costBuilder.addCostArgument(costName));
     }
 

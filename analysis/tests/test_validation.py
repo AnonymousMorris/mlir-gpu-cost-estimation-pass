@@ -69,6 +69,7 @@ def test_rejects_empty_input():
 def test_cli_reports_validation_errors_without_traceback(tmp_path):
     empty_mlir = tmp_path / "empty.mlir"
     empty_mlir.write_text("")
+
     result = subprocess.run(
         [sys.executable, "main.py", str(empty_mlir)],
         text=True,

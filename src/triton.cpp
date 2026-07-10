@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cassert>
 #include <optional>
+#include <string>
 
 using namespace mlir;
 
@@ -62,6 +63,19 @@ const CostSpec &tensor_cost(Operation &op) {
     auto costIt = NamedTensorOpCost.find(op.getName().getStringRef());
     assert(costIt != NamedTensorOpCost.end() && "missing tensor op cost name");
     return costIt->second;
+}
+
+CostType triton_cost_type(Operation &op) {
+    llvm::StringRef name = op.getName().getStringRef();
+    if (name == "tt.dot") {
+        return CostType::TENSOR;
+    }
+    if (name == "tt.load" || name == "tt.store" ||
+        name == "ttg.local_alloc" || name == "ttg.local_load" ||
+        name == "ttg.async_copy_global_to_local") {
+        return CostType::MEMORY;
+    }
+    return CostType::FP32;
 }
 
 int64_t tensor_k_dim(Value value) {
@@ -125,6 +139,14 @@ Value analyze_triton_make_range(CostIRBuilder &costBuilder,
                       elements_per_thread(makeRangeOp.getResult()));
 }
 
+Value analyze_triton_extern_elementwise(
+    CostIRBuilder &costBuilder, triton::ExternElementwiseOp externOp,
+    const GpuSpec &) {
+    std::string costName = "triton.extern." + externOp.getSymbol().str();
+    return scale_cost(costBuilder, llvm::StringRef(costName),
+                      elements_per_thread(externOp.getResult()));
+}
+
 Value analyze_ttg_local_alloc(CostIRBuilder &costBuilder,
                               triton::gpu::LocalAllocOp localAllocOp,
                               const GpuSpec &) {
@@ -163,12 +185,12 @@ std::optional<CostVector> analyze_triton_tensor_op(CostIRBuilder &costBuilder,
                                                    const GpuSpec &gpu) {
     if (auto loadOp = dyn_cast<triton::LoadOp>(op)) {
         return costBuilder.costVector(
-            CostType::TENSOR, analyze_triton_load(costBuilder, loadOp, gpu));
+            CostType::MEMORY, analyze_triton_load(costBuilder, loadOp, gpu));
     }
 
     if (auto storeOp = dyn_cast<triton::StoreOp>(op)) {
         return costBuilder.costVector(
-            CostType::TENSOR, analyze_triton_store(costBuilder, storeOp, gpu));
+            CostType::MEMORY, analyze_triton_store(costBuilder, storeOp, gpu));
     }
 
     if (auto dotOp = dyn_cast<triton::DotOp>(op)) {
@@ -178,55 +200,61 @@ std::optional<CostVector> analyze_triton_tensor_op(CostIRBuilder &costBuilder,
 
     if (auto addPtrOp = dyn_cast<triton::AddPtrOp>(op)) {
         return costBuilder.costVector(
-            CostType::TENSOR,
+            CostType::FP32,
             analyze_triton_addptr(costBuilder, addPtrOp, gpu));
     }
 
     if (auto broadcastOp = dyn_cast<triton::BroadcastOp>(op)) {
         return costBuilder.costVector(
-            CostType::TENSOR,
+            CostType::FP32,
             analyze_triton_broadcast(costBuilder, broadcastOp, gpu));
     }
 
     if (auto expandDimsOp = dyn_cast<triton::ExpandDimsOp>(op)) {
         return costBuilder.costVector(
-            CostType::TENSOR,
+            CostType::FP32,
             analyze_triton_expand_dims(costBuilder, expandDimsOp, gpu));
     }
 
     if (auto splatOp = dyn_cast<triton::SplatOp>(op)) {
         return costBuilder.costVector(
-            CostType::TENSOR, analyze_triton_splat(costBuilder, splatOp, gpu));
+            CostType::FP32, analyze_triton_splat(costBuilder, splatOp, gpu));
     }
 
     if (auto makeRangeOp = dyn_cast<triton::MakeRangeOp>(op)) {
         return costBuilder.costVector(
-            CostType::TENSOR,
+            CostType::FP32,
             analyze_triton_make_range(costBuilder, makeRangeOp, gpu));
+    }
+
+    if (auto externOp = dyn_cast<triton::ExternElementwiseOp>(op)) {
+        return costBuilder.costVector(
+            CostType::SFU,
+            analyze_triton_extern_elementwise(costBuilder, externOp, gpu));
     }
 
     if (auto localAllocOp = dyn_cast<triton::gpu::LocalAllocOp>(op)) {
         return costBuilder.costVector(
-            CostType::TENSOR,
+            CostType::MEMORY,
             analyze_ttg_local_alloc(costBuilder, localAllocOp, gpu));
     }
 
     if (auto localLoadOp = dyn_cast<triton::gpu::LocalLoadOp>(op)) {
         return costBuilder.costVector(
-            CostType::TENSOR,
+            CostType::MEMORY,
             analyze_ttg_local_load(costBuilder, localLoadOp, gpu));
     }
 
     if (auto convertLayoutOp = dyn_cast<triton::gpu::ConvertLayoutOp>(op)) {
         return costBuilder.costVector(
-            CostType::TENSOR,
+            CostType::FP32,
             analyze_ttg_convert_layout(costBuilder, convertLayoutOp, gpu));
     }
 
     auto costIt = NamedTensorOpCost.find(op.getName().getStringRef());
     if (costIt != NamedTensorOpCost.end()) {
         CostVector cost = costBuilder.costVector(
-            CostType::TENSOR,
+            triton_cost_type(op),
             scale_cost(costBuilder, costIt->second, elements_per_thread(op)));
         for (Region &region : op.getRegions()) {
             cost = costBuilder.add(cost,

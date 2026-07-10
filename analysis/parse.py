@@ -6,16 +6,21 @@ from pathlib import Path
 
 import sympy
 
-from cost_mlir import parse_cost_function
-from equation import build_equation, build_equations
+from mlir_sympy import build_equation, build_equations, parse_cost_function
 
 
 def cost_equation(mlir: str) -> sympy.Expr:
+    """Parse a legacy cost function that returns one scalar expression."""
     return build_equation(parse_cost_function(mlir))
 
 
+def cost_equations(mlir: str) -> dict[str, sympy.Expr]:
+    """Parse all named category expressions returned by a cost function."""
+    return build_equations(parse_cost_function(mlir))
+
+
 def formatted_cost_equations(mlir: str) -> str:
-    equations = build_equations(parse_cost_function(mlir))
+    equations = cost_equations(mlir)
     if len(equations) == 1:
         return str(next(iter(equations.values())))
     return "\n".join(f"{name}: {expression}" for name, expression in equations.items())

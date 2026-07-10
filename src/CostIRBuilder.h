@@ -11,8 +11,6 @@
 
 using namespace mlir;
 
-using CostVector = std::array<Value, 5>;
-
 enum class CostType {
     FP32,
     FP64,
@@ -22,6 +20,9 @@ enum class CostType {
 
     count,
 };
+
+constexpr size_t CostTypeCount = static_cast<size_t>(CostType::count);
+using CostVector = std::array<Value, CostTypeCount>;
 
 class CostIRBuilder {
 public:
@@ -44,7 +45,6 @@ public:
     Value indexToCost(Value value);
     Value sumCosts(llvm::ArrayRef<Value> costs);
     CostVector sumCosts(llvm::ArrayRef<CostVector> costs);
-    void finalize(Value result);
     void finalize(CostVector resultVec);
     void simplify();
 
@@ -63,9 +63,4 @@ private:
     func::FuncOp costFunc;
     Block *entry = nullptr;
     llvm::StringMap<Value> arguments;
-
-    // We want to treat the different pipelines in the GPU
-    // independently of one another as they should be able 
-    // to execute in parallel
-    CostVector typeCosts;
 };

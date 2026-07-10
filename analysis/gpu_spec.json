@@ -1,0 +1,71 @@
+{
+  "name": "NVIDIA GeForce RTX 3060",
+  "architecture": "Ampere GA106",
+  "sms": 30,
+  "cuda_cores": 3840,
+  "assumed_clock_ghz": 1.70,
+  "launch_overhead_ms": 0.004,
+  "memory_bandwidth_gb_s": 360.0,
+  "utilization": {
+    "fp32": 0.65,
+    "int32": 0.65,
+    "sfu": 0.35,
+    "tensor_tf32": 0.55,
+    "tensor_fp16": 0.55,
+    "memory": 0.75,
+    "overhead": 0.50
+  },
+  "per_sm_ops_per_cycle": {
+    "fp32": 128,
+    "int32": 64,
+    "sfu": 16,
+    "tensor_tf32": 512,
+    "tensor_fp16": 1024
+  },
+  "operation_paths": {
+    "arith.addf32": "fp32",
+    "arith.subf32": "fp32",
+    "arith.mulf32": "fp32",
+    "arith.fma32": "fp32",
+    "arith.addi": "int32",
+    "arith.addi32": "int32",
+    "arith.andi": "int32",
+    "arith.cmpi": "int32",
+    "arith.divsi": "int32",
+    "arith.divui": "int32",
+    "arith.minsi": "int32",
+    "arith.muli": "int32",
+    "arith.muli32": "int32",
+    "arith.remsi": "int32",
+    "arith.remui": "int32",
+    "arith.subi": "int32",
+    "arith.truncf": "fp32",
+    "arith.uitofp": "fp32",
+    "triton.dot_cost": "tensor_tf32",
+    "triton.load_cost": "memory",
+    "triton.store_cost": "memory",
+    "triton.addptr_cost": "int32",
+    "triton.make_range_cost": "int32",
+    "triton.broadcast_cost": "overhead",
+    "triton.expand_dims_cost": "overhead",
+    "triton.splat_cost": "overhead",
+    "triton_gpu.convert_layout_cost": "overhead",
+    "triton_gpu.local_alloc_cost": "memory",
+    "triton_gpu.local_load_cost": "memory",
+    "vector.extract": "overhead",
+    "vector.extract_strided_slice": "overhead",
+    "vector.shape_cast": "overhead",
+    "index.castu": "int32"
+  },
+  "memory_bytes_per_count": {
+    "triton.load_cost": 4,
+    "triton.store_cost": 4,
+    "triton_gpu.local_alloc_cost": 4,
+    "triton_gpu.local_load_cost": 4
+  },
+  "notes": [
+    "Rates are intentionally simple peak-style defaults for fast experiments.",
+    "FP32 uses FMA-equivalent 128 ops/SM/cycle. Tensor dot defaults to TF32 path.",
+    "Utilization and launch_overhead_ms are calibration knobs, not hardware facts."
+  ]
+}
