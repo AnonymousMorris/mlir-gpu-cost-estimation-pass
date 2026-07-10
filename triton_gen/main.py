@@ -6,6 +6,7 @@ import re
 
 import torch
 import triton
+from tqdm import tqdm
 from kernels import KERNEL_MODULES
 
 
@@ -100,10 +101,12 @@ if __name__ == "__main__":
 
     result = {}
 
-    for module in KERNEL_MODULES:
+    kernel_progress = tqdm(KERNEL_MODULES, desc="Kernels", unit="kernel", dynamic_ncols=True)
+    for module in kernel_progress:
         kernel = module.KERNEL
         kernel_name = kernel.__name__
         kernel_runs = []
+        kernel_progress.set_description(f"Kernel: {kernel_name}")
 
         for kernel_args, kwargs, grid in module.iter_args(DEVICE):
             run_args = [
@@ -142,8 +145,8 @@ if __name__ == "__main__":
             )
             kernel_runs.append(runRecord)
 
-            print(launch_name)
-            print(
+            kernel_progress.write(launch_name)
+            kernel_progress.write(
                 f"kernel time: {elapsed_ms:.6f} ms "
                 f"(p20={time_p20_ms:.6f}, p80={time_p80_ms:.6f}, spread/median={time_cv:.3f})\n"
             )
