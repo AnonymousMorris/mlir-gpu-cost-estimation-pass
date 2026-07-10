@@ -1,8 +1,10 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import main
+from kernels import grouped_gemm
 
 
 class ResumeStateTests(unittest.TestCase):
@@ -43,6 +45,31 @@ class ResumeStateTests(unittest.TestCase):
 
         self.assertEqual(main.RESULT_PATH.read_text(), '{\n  "add_kernel": []\n}')
         self.assertFalse(main.RESULT_PATH.with_name("result.json.new").exists())
+
+
+class GroupedGemmLifetimeTests(unittest.TestCase):
+    def tearDown(self):
+        grouped_gemm.release_args()
+
+    def test_iter_args_releases_each_cases_tensor_owners(self):
+        owners = []
+
+        def make_args(*args, **kwargs):
+            owner = object()
+            owners.append(owner)
+            grouped_gemm._KEEPALIVE = owner
+            return (), {}, (1,)
+
+        with patch.object(grouped_gemm, "make_args", side_effect=make_args):
+            cases = grouped_gemm.iter_args(None)
+            next(cases)
+            self.assertIs(grouped_gemm._KEEPALIVE, owners[0])
+
+            next(cases)
+            self.assertIs(grouped_gemm._KEEPALIVE, owners[1])
+
+            cases.close()
+            self.assertIsNone(grouped_gemm._KEEPALIVE)
 
 
 if __name__ == "__main__":

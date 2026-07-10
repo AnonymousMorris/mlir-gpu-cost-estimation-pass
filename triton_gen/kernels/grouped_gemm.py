@@ -3,6 +3,9 @@ import triton
 import triton.language as tl
 
 
+_KEEPALIVE = None
+
+
 @triton.jit
 def grouped_matmul_kernel(
     # device tensor of matrices pointers
@@ -93,10 +96,20 @@ def iter_args(device):
     for group_size in (2, 4, 8):
         for shape in ((128, 128, 128), (256, 128, 128), (128, 256, 128), (256, 256, 256)):
             for num_sm in (8, 16):
-                yield make_args(device, group_size=group_size, shape=shape, num_sm=num_sm)
+                try:
+                    yield make_args(device, group_size=group_size, shape=shape, num_sm=num_sm)
+                finally:
+                    release_args()
+
+
+def release_args():
+    global _KEEPALIVE
+    _KEEPALIVE = None
 
 
 def make_args(device, group_size, shape, num_sm):
+    global _KEEPALIVE
+
     M, N, K = shape
     group_a = [torch.randn((M, K), device=device, dtype=torch.float16) for _ in range(group_size)]
     group_b = [torch.randn((K, N), device=device, dtype=torch.float16) for _ in range(group_size)]
@@ -116,4 +129,5 @@ def make_args(device, group_size, shape, num_sm):
         "num_warps": 4,
         "num_stages": 3,
     }
+    _KEEPALIVE = (group_a, group_b, group_c)
     return args, kwargs, grid
