@@ -16,6 +16,7 @@ from mlir_sympy import build_equations, parse_cost_function
 
 
 PIPELINES = ("fp32", "fp64", "sfu", "tensor", "memory")
+PLOT_EXCLUDED_KERNELS = frozenset({"matmul_kernel_persistent"})
 ROOT = Path(__file__).resolve().parent
 PLOTS_DIR = ROOT / "plots"
 COST_FUNC_RE = re.compile(r"func\.func\s+@__cost_expr\b")
@@ -42,6 +43,12 @@ class AnalysisSkip:
     kernel: str
     ttgir: str
     reason: str
+
+
+@dataclass(frozen=True)
+class ProgramMetadata:
+    num_ctas: int
+    threads_per_program: int
 
 
 def load_json(path: Path) -> Any:
@@ -102,15 +109,28 @@ def extract_cost_function(text: str) -> str:
         raise ValueError("cost function has no return type")
     result_paren_depth = 0
     brace_start = None
-    for index in range(arrow + 2, len(text)):
+    index = arrow + 2
+    while index < len(text):
         char = text[index]
         if char == "(":
             result_paren_depth += 1
         elif char == ")":
             result_paren_depth -= 1
         elif char == "{" and result_paren_depth == 0:
+            prefix = text[arrow + 2 : index].rstrip()
+            if prefix.endswith("attributes"):
+                attribute_depth = 1
+                while attribute_depth and index + 1 < len(text):
+                    index += 1
+                    if text[index] == "{":
+                        attribute_depth += 1
+                    elif text[index] == "}":
+                        attribute_depth -= 1
+                index += 1
+                continue
             brace_start = index
             break
+        index += 1
     if brace_start is None:
         raise ValueError("cost function has no body")
 
@@ -138,6 +158,60 @@ def pipeline_exprs(cost_mlir: str) -> dict[str, sympy.Expr]:
             details.append(f"missing categories: {', '.join(sorted(missing))}")
         raise ValueError("invalid cost categories (" + "; ".join(details) + ")")
     return {pipeline: equations[pipeline] for pipeline in PIPELINES}
+
+
+def program_metadata(cost_mlir: str) -> ProgramMetadata:
+    cost_function = parse_cost_function(cost_mlir)
+    attributes = cost_function.operation.operation.attributes
+    try:
+        work_unit = attributes["cost.work_unit"].value
+        num_ctas = int(attributes["cost.num_ctas"].value)
+        threads_per_program = int(attributes["cost.threads_per_program"].value)
+    except KeyError as error:
+        raise ValueError(f"cost function is missing {error.args[0]}") from error
+
+    if work_unit != "program":
+        raise ValueError(f"unsupported cost work unit: {work_unit}")
+    if num_ctas <= 0:
+        raise ValueError("cost.num_ctas must be positive")
+    if threads_per_program <= 0:
+        raise ValueError("cost.threads_per_program must be positive")
+    return ProgramMetadata(
+        num_ctas=num_ctas,
+        threads_per_program=threads_per_program,
+    )
+
+
+def grid_program_count(grid_size: list[int]) -> int:
+    if not grid_size:
+        raise ValueError("missing grid_size")
+    if any(dimension <= 0 for dimension in grid_size):
+        raise ValueError(f"grid_size dimensions must be positive: {grid_size}")
+    return math.prod(grid_size)
+
+
+def launch_work(
+    per_program_work: dict[str, float], grid_size: list[int]
+) -> dict[str, float]:
+    programs = grid_program_count(grid_size)
+    return {
+        pipeline: per_program_work[pipeline] * programs
+        for pipeline in PIPELINES
+    }
+
+
+def launch_rates(
+    rates: dict[str, float], sms: int, programs: int, num_ctas: int
+) -> dict[str, float]:
+    if sms <= 0:
+        raise ValueError("sms must be positive")
+    launched_ctas = programs * num_ctas
+    active_sms = min(sms, launched_ctas)
+    active_fraction = active_sms / sms
+    return {
+        pipeline: rates[pipeline] * active_fraction
+        for pipeline in PIPELINES
+    }
 
 
 def eval_work(exprs: dict[str, sympy.Expr], config: dict[str, Any]) -> dict[str, float]:
@@ -211,8 +285,19 @@ def analyze(args: argparse.Namespace) -> tuple[list[CostResult], list[AnalysisSk
         try:
             cost_mlir = run_cost_pass(args.triton_opt, args.plugin, ttgir_path, func_name, args.timeout)
             exprs = pipeline_exprs(cost_mlir)
-            work = eval_work(exprs, config)
-            predicted, bottleneck, pipeline_ms = predict_ms(work, rates, launch_overhead_ms)
+            metadata = program_metadata(cost_mlir)
+            grid_size = [int(v) for v in record.get("grid_size", [])]
+            programs = grid_program_count(grid_size)
+            work = launch_work(eval_work(exprs, config), grid_size)
+            effective_rates = launch_rates(
+                rates,
+                int(spec["sms"]),
+                programs,
+                metadata.num_ctas,
+            )
+            predicted, bottleneck, pipeline_ms = predict_ms(
+                work, effective_rates, launch_overhead_ms
+            )
         except Exception as error:
             skips.append(AnalysisSkip(kernel, ttgir, str(error).splitlines()[0]))
             continue
@@ -230,7 +315,7 @@ def analyze(args: argparse.Namespace) -> tuple[list[CostResult], list[AnalysisSk
                 category_expressions={name: str(expr) for name, expr in exprs.items()},
                 args=[str(arg) for arg in record.get("args", [])],
                 kwargs={str(k): str(v) for k, v in record.get("kwargs", {}).items()},
-                grid_size=[int(v) for v in record.get("grid_size", [])],
+                grid_size=grid_size,
             )
         )
     return rows, skips
@@ -249,11 +334,15 @@ def summarize(rows: list[CostResult], skips: list[AnalysisSkip]) -> dict[str, An
     if not rows:
         return {"count": 0, "skip_count": len(skips)}
     ratios = [row.predicted_ms / row.time_ms for row in rows if row.time_ms > 0]
+    factors = [max(ratio, 1.0 / ratio) for ratio in ratios if ratio > 0]
     return {
         "count": len(rows),
         "skip_count": len(skips),
         "median_predicted_over_actual": median(ratios),
         "mean_predicted_over_actual": sum(ratios) / len(ratios),
+        "median_multiplicative_error": median(factors),
+        "within_2x_fraction": sum(factor <= 2.0 for factor in factors) / len(factors),
+        "within_5x_fraction": sum(factor <= 5.0 for factor in factors) / len(factors),
     }
 
 
@@ -265,7 +354,12 @@ def median(values: list[float]) -> float:
     return (ordered[mid - 1] + ordered[mid]) / 2.0
 
 
+def plottable_rows(rows: list[CostResult]) -> list[CostResult]:
+    return [row for row in rows if row.kernel not in PLOT_EXCLUDED_KERNELS]
+
+
 def plot(rows: list[CostResult], scatter_path: Path, pipeline_path: Path) -> None:
+    rows = plottable_rows(rows)
     if not rows:
         return
 

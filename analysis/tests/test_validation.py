@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
 from main import cost_equation
+
+
+MAIN = Path(__file__).resolve().parents[1] / "main.py"
 
 
 SAMPLE_COST_MLIR = """// Cost expression for func.func @main
@@ -71,7 +75,7 @@ def test_cli_reports_validation_errors_without_traceback(tmp_path):
     empty_mlir.write_text("")
 
     result = subprocess.run(
-        [sys.executable, "main.py", str(empty_mlir)],
+        [sys.executable, str(MAIN), str(empty_mlir)],
         text=True,
         capture_output=True,
         check=False,
@@ -84,7 +88,7 @@ def test_cli_reports_validation_errors_without_traceback(tmp_path):
 
 def test_cli_reads_stdin():
     result = subprocess.run(
-        [sys.executable, "main.py", "-"],
+        [sys.executable, str(MAIN), "-"],
         input=SAMPLE_COST_MLIR,
         text=True,
         capture_output=True,

@@ -91,7 +91,19 @@ Useful options include:
 ## Prediction model
 
 The analyzer evaluates each category equation using
-`cost_analysis_config.json`. It converts each workload to an estimated time:
+`cost_analysis_config.json`. The MLIR pass converts its per-thread equations to
+per-program work using the TTGIR launch configuration. The analyzer then scales
+that work to the complete recorded launch:
+
+```text
+threads per program = num CTAs * num warps * threads per warp
+program count = product(grid size)
+launch work = per-thread work * threads per program * program count
+```
+
+For grids that launch fewer CTAs than the GPU has SMs, the analyzer reduces the
+available whole-GPU throughput by the fraction of SMs that can be active. It
+then converts each launch workload to an estimated time:
 
 ```text
 category time = category work / effective category throughput
@@ -112,7 +124,7 @@ The default JSON output is `cost_predictions.json`. Each successful prediction
 contains:
 
 - `category_expressions`: the five simplified symbolic equations
-- `pipeline_work`: evaluated work for each category
+- `pipeline_work`: evaluated whole-launch work for each category
 - `pipeline_ms`: estimated time for each category
 - `bottleneck`: the category with the largest estimated time
 - `predicted_ms` and `time_ms`: predicted and measured runtime
@@ -125,7 +137,9 @@ Generated figures are stored in `plots/` by default:
   bottleneck category
 
 Both axes of the scatter plot use logarithmic scales. Its diagonal line marks
-perfect agreement between measured and predicted runtime.
+perfect agreement between measured and predicted runtime. Persistent matmul
+kernels are excluded from plots until the cost analysis models their
+runtime-dependent loop iterations.
 
 ## Tests
 

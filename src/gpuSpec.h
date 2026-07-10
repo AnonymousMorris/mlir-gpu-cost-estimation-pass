@@ -13,4 +13,8 @@ struct GpuSpec {
     int64_t threadsPerCTA() const {
         return numWarps * threadsPerWarp;
     }
+
+    int64_t threadsPerProgram() const {
+        return numCTAs * threadsPerCTA();
+    }
 };
