@@ -15,12 +15,16 @@ DEVICE = triton.runtime.driver.active.get_active_torch_device()
 class KernelRunRecord:
     args: list[str]
     kwargs: dict[str, str]
+    grid_size: list[int]
+    block_size: dict[str, str]
     compiled_name: str
     ttgir_filename: str
     time_ms: float
     time_p20_ms: float
     time_p80_ms: float
     time_cv: float
+    status: str = "ok"
+    error: str | None = None
 
 
 def write_result(result):
@@ -37,6 +41,21 @@ def record_name(args, kwargs):
 
 def safe_filename(name):
     return re.sub(r"[^A-Za-z0-9_.=-]+", "_", name)
+
+
+def record_grid_size(grid, kwargs):
+    grid_size = grid(kwargs) if callable(grid) else grid
+    if isinstance(grid_size, int):
+        return [grid_size]
+    return [int(dimension) for dimension in grid_size]
+
+
+def record_block_size(kwargs):
+    return {
+        key: str(value)
+        for key, value in sorted(kwargs.items())
+        if key.upper().startswith("BLOCK")
+    }
 
 
 def write_ttgir(name, ttgir):
@@ -87,6 +106,15 @@ if __name__ == "__main__":
         kernel_runs = []
 
         for kernel_args, kwargs, grid in module.iter_args(DEVICE):
+            run_args = [
+                str(arg) for arg in kernel_args if not isinstance(arg, torch.Tensor)
+            ]
+            run_kwargs = {
+                key: str(value) for key, value in sorted(kwargs.items())
+            }
+            grid_size = record_grid_size(grid, kwargs)
+            block_size = record_block_size(kwargs)
+
             h, elapsed_ms, time_p20_ms, time_p80_ms, time_cv = benchmark_kernel(
                 kernel,
                 grid,
@@ -101,8 +129,10 @@ if __name__ == "__main__":
             ttgir_filename = write_ttgir(launch_name, h.asm["ttgir"])
 
             runRecord = KernelRunRecord(
-                args=[str(arg) for arg in kernel_args if not isinstance(arg, torch.Tensor)],
-                kwargs={key: str(value) for key, value in sorted(kwargs.items())},
+                args=run_args,
+                kwargs=run_kwargs,
+                grid_size=grid_size,
+                block_size=block_size,
                 compiled_name=h.name,
                 ttgir_filename=ttgir_filename,
                 time_ms=elapsed_ms,
