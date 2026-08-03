@@ -90,24 +90,40 @@ Useful options include:
 
 ## Prediction model
 
-The analyzer evaluates each category equation using
-`cost_analysis_config.json`. The MLIR pass converts its per-thread equations to
-per-program work using the TTGIR launch configuration. The analyzer then scales
-that work to the complete recorded launch:
+The C++ pass remains independent of the host launch grid. It converts each
+per-thread category equation to per-block work using TTGIR metadata:
 
 ```text
-threads per program = num CTAs * num warps * threads per warp
+threads per block = num warps * threads per warp
+per-block work = per-thread work * threads per block
+```
+
+The Python `schedule_work()` function in `scheduler.py` then combines that
+static work with the recorded host launch and the selected GPU specification:
+
+```text
 program count = product(grid size)
-launch work = per-thread work * threads per program * program count
+total blocks = program count * CTAs per program
+waves = ceil(total blocks / GPU SM count)
+scheduled SM work = per-block work * waves
 ```
 
-For grids that launch fewer CTAs than the GPU has SMs, the analyzer reduces the
-available whole-GPU throughput by the fraction of SMs that can be active. It
-then converts each launch workload to an estimated time:
+This scheduled work is the critical-path work assigned to the busiest SM. The
+model assumes each SM executes one block at a time. It intentionally does not
+model additional resident blocks, latency hiding, register pressure, or shared
+memory occupancy yet.
+
+The analyzer converts scheduled work to time using per-SM category capacities:
 
 ```text
-category time = category work / effective category throughput
+category time = scheduled SM work / per-SM category capacity
 ```
+
+Global memory bandwidth is currently divided evenly across the GPU's SMs. This
+is an explicit simplifying assumption, not a measured per-SM hardware property.
+The prediction output records the scheduling model, inputs, block count, and
+wave count. Future Python scheduling policies can therefore replace this model
+without changing or rerunning the static operation analysis.
 
 The predicted bottleneck is the category with the largest time. Total predicted
 runtime is:
@@ -124,7 +140,8 @@ The default JSON output is `cost_predictions.json`. Each successful prediction
 contains:
 
 - `category_expressions`: the five simplified symbolic equations
-- `pipeline_work`: evaluated whole-launch work for each category
+- `scheduled_work`: evaluated busiest-SM work for each category
+- `schedule`: scheduler model, launch inputs, block count, and wave count
 - `pipeline_ms`: estimated time for each category
 - `bottleneck`: the category with the largest estimated time
 - `predicted_ms` and `time_ms`: predicted and measured runtime
@@ -146,5 +163,5 @@ runtime-dependent loop iterations.
 Run the focused parser, category, and plotting tests from `analysis/`:
 
 ```bash
-uv run pytest -q tests/test_validation.py tests/test_category_costs.py
+uv run pytest -q tests/test_validation.py tests/test_category_costs.py tests/test_scheduler.py
 ```

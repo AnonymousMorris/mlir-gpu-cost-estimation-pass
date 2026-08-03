@@ -1,23 +1,24 @@
 from __future__ import annotations
 
-import sympy
 import pytest
+import sympy
 
 from analyze_costs import (
     CostResult,
     PIPELINES,
+    block_metadata,
     extract_cost_function,
     grid_program_count,
-    launch_rates,
-    launch_work,
+    pass_pipeline,
+    per_sm_throughput_rates,
     pipeline_exprs,
     plot,
     plottable_rows,
-    program_metadata,
     summarize,
 )
 from mlir_sympy import build_equations, parse_cost_function
 from parse import cost_equations, formatted_cost_equations
+from scheduler import schedule_work
 
 
 CATEGORY_COST_MLIR = """func.func @__cost_expr(
@@ -39,7 +40,7 @@ CATEGORY_COST_MLIR = """func.func @__cost_expr(
 }"""
 
 
-PROGRAM_COST_MLIR = """func.func @__cost_expr() -> (
+BLOCK_COST_MLIR = """func.func @__cost_expr() -> (
   f64 {cost.name = "fp32"},
   f64 {cost.name = "fp64"},
   f64 {cost.name = "sfu"},
@@ -47,12 +48,38 @@ PROGRAM_COST_MLIR = """func.func @__cost_expr() -> (
   f64 {cost.name = "memory"}
 ) attributes {
   cost.num_ctas = 2 : i64,
-  cost.threads_per_program = 256 : i64,
-  cost.work_unit = "program"
+  cost.threads_per_block = 128 : i64,
+  cost.work_unit = "block"
 } {
   %c0 = arith.constant 0.000000e+00 : f64
   return %c0, %c0, %c0, %c0, %c0 : f64, f64, f64, f64, f64
 }"""
+
+
+_, SCHEDULE = schedule_work(
+    {pipeline: 1.0 for pipeline in PIPELINES},
+    program_count=1,
+    num_ctas=1,
+    num_sms=30,
+)
+
+
+def result(kernel: str, predicted_ms: float = 1.0) -> CostResult:
+    return CostResult(
+        kernel=kernel,
+        ttgir=f"{kernel}.ttgir",
+        time_ms=1.0,
+        predicted_ms=predicted_ms,
+        bottleneck="memory",
+        scheduled_work={pipeline: 1.0 for pipeline in PIPELINES},
+        pipeline_ms={pipeline: 1.0 for pipeline in PIPELINES},
+        expression="1.0",
+        category_expressions={pipeline: "1.0" for pipeline in PIPELINES},
+        args=[],
+        kwargs={},
+        grid_size=[1],
+        schedule=SCHEDULE,
+    )
 
 
 def test_builds_one_equation_for_each_named_cost_result():
@@ -85,15 +112,19 @@ def test_pipeline_expressions_use_result_categories_without_reclassification():
 
 
 def test_extracts_function_with_named_multi_result_attributes():
-    extracted = extract_cost_function("pass output\n" + CATEGORY_COST_MLIR + "\nmore output")
+    extracted = extract_cost_function(
+        "pass output\n" + CATEGORY_COST_MLIR + "\nmore output"
+    )
 
     assert extracted == CATEGORY_COST_MLIR
 
 
 def test_extracts_function_with_execution_metadata_attributes():
-    extracted = extract_cost_function("pass output\n" + PROGRAM_COST_MLIR + "\nmore output")
+    extracted = extract_cost_function(
+        "pass output\n" + BLOCK_COST_MLIR + "\nmore output"
+    )
 
-    assert extracted == PROGRAM_COST_MLIR
+    assert extracted == BLOCK_COST_MLIR
 
 
 def test_formats_each_category_as_a_separate_equation():
@@ -118,9 +149,17 @@ def test_pipeline_expressions_require_the_complete_category_contract():
         pipeline_exprs(incomplete)
 
 
-def test_reads_program_execution_metadata():
-    assert program_metadata(PROGRAM_COST_MLIR).num_ctas == 2
-    assert program_metadata(PROGRAM_COST_MLIR).threads_per_program == 256
+def test_reads_per_block_metadata():
+    metadata = block_metadata(BLOCK_COST_MLIR)
+
+    assert metadata.num_ctas == 2
+    assert metadata.threads_per_block == 128
+
+
+def test_builds_grid_independent_pass_pipeline():
+    assert pass_pipeline("kernel") == (
+        "builtin.module(my-cost-analysis{func-name=kernel})"
+    )
 
 
 def test_grid_program_count_multiplies_all_dimensions():
@@ -133,39 +172,32 @@ def test_grid_program_count_rejects_invalid_grids(grid_size):
         grid_program_count(grid_size)
 
 
-def test_launch_work_scales_per_program_work_by_grid_volume():
-    per_program = {pipeline: float(index) for index, pipeline in enumerate(PIPELINES)}
-
-    assert launch_work(per_program, [2, 3, 4]) == {
-        pipeline: value * 24 for pipeline, value in per_program.items()
+def test_builds_per_sm_throughput_rates():
+    spec = {
+        "sms": 30,
+        "assumed_clock_ghz": 1.0,
+        "memory_bandwidth_gb_s": 300.0,
+        "per_sm_ops_per_cycle": {
+            "fp32": 128,
+            "fp64": 2,
+            "sfu": 16,
+            "tensor_tf32": 512,
+        },
+        "utilization": {},
     }
 
+    rates = per_sm_throughput_rates(spec, {})
 
-def test_launch_rates_account_for_small_grid_sm_underfill():
-    rates = {pipeline: 300.0 for pipeline in PIPELINES}
-
-    assert launch_rates(rates, sms=30, programs=4, num_ctas=1) == {
-        pipeline: 40.0 for pipeline in PIPELINES
-    }
-    assert launch_rates(rates, sms=30, programs=60, num_ctas=1) == rates
+    assert rates["fp32"] == 128_000_000.0
+    assert rates["fp64"] == 2_000_000.0
+    assert rates["sfu"] == 16_000_000.0
+    assert rates["tensor"] == 512_000_000.0
+    assert rates["memory"] == 10_000_000.0
 
 
 def test_summary_reports_symmetric_multiplicative_accuracy():
     rows = [
-        CostResult(
-            kernel=f"kernel_{index}",
-            ttgir=f"kernel_{index}.ttgir",
-            time_ms=1.0,
-            predicted_ms=predicted_ms,
-            bottleneck="memory",
-            pipeline_work={pipeline: 1.0 for pipeline in PIPELINES},
-            pipeline_ms={pipeline: 1.0 for pipeline in PIPELINES},
-            expression="1.0",
-            category_expressions={pipeline: "1.0" for pipeline in PIPELINES},
-            args=[],
-            kwargs={},
-            grid_size=[1],
-        )
+        result(f"kernel_{index}", predicted_ms)
         for index, predicted_ms in enumerate((0.25, 0.5, 1.0, 2.0, 10.0))
     ]
 
@@ -177,46 +209,20 @@ def test_summary_reports_symmetric_multiplicative_accuracy():
 
 
 def test_plots_exclude_persistent_matmul_rows():
-    def row(kernel):
-        return CostResult(
-            kernel=kernel,
-            ttgir=f"{kernel}.ttgir",
-            time_ms=1.0,
-            predicted_ms=1.0,
-            bottleneck="memory",
-            pipeline_work={pipeline: 1.0 for pipeline in PIPELINES},
-            pipeline_ms={pipeline: 1.0 for pipeline in PIPELINES},
-            expression="1.0",
-            category_expressions={pipeline: "1.0" for pipeline in PIPELINES},
-            args=[],
-            kwargs={},
-            grid_size=[1],
-        )
-
-    regular = row("matmul_kernel")
-    persistent = row("matmul_kernel_persistent")
+    regular = result("matmul_kernel")
+    persistent = result("matmul_kernel_persistent")
 
     assert plottable_rows([regular, persistent]) == [regular]
 
 
 def test_plot_creates_nested_plot_directory(tmp_path):
-    row = CostResult(
-        kernel="add_kernel",
-        ttgir="add.ttgir",
-        time_ms=0.01,
-        predicted_ms=0.02,
-        bottleneck="memory",
-        pipeline_work={pipeline: 1.0 for pipeline in PIPELINES},
-        pipeline_ms={pipeline: 0.01 for pipeline in PIPELINES},
-        expression="1.0",
-        category_expressions={pipeline: "1.0" for pipeline in PIPELINES},
-        args=[],
-        kwargs={},
-        grid_size=[1],
-    )
     plots_dir = tmp_path / "nested" / "plots"
 
-    plot([row], plots_dir / "scatter.png", plots_dir / "pipelines.png")
+    plot(
+        [result("add_kernel", predicted_ms=0.02)],
+        plots_dir / "scatter.png",
+        plots_dir / "pipelines.png",
+    )
 
     assert (plots_dir / "scatter.png").is_file()
     assert (plots_dir / "pipelines.png").is_file()

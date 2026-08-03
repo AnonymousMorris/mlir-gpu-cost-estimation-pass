@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import sympy
 
 from mlir_sympy import build_equations, parse_cost_function
+from scheduler import Schedule, schedule_work
 
 
 PIPELINES = ("fp32", "fp64", "sfu", "tensor", "memory")
@@ -29,13 +30,14 @@ class CostResult:
     time_ms: float
     predicted_ms: float
     bottleneck: str
-    pipeline_work: dict[str, float]
+    scheduled_work: dict[str, float]
     pipeline_ms: dict[str, float]
     expression: str
     category_expressions: dict[str, str]
     args: list[str]
     kwargs: dict[str, str]
     grid_size: list[int]
+    schedule: Schedule
 
 
 @dataclass(frozen=True)
@@ -46,9 +48,9 @@ class AnalysisSkip:
 
 
 @dataclass(frozen=True)
-class ProgramMetadata:
+class BlockMetadata:
     num_ctas: int
-    threads_per_program: int
+    threads_per_block: int
 
 
 def load_json(path: Path) -> Any:
@@ -160,26 +162,25 @@ def pipeline_exprs(cost_mlir: str) -> dict[str, sympy.Expr]:
     return {pipeline: equations[pipeline] for pipeline in PIPELINES}
 
 
-def program_metadata(cost_mlir: str) -> ProgramMetadata:
+def block_metadata(cost_mlir: str) -> BlockMetadata:
     cost_function = parse_cost_function(cost_mlir)
     attributes = cost_function.operation.operation.attributes
     try:
         work_unit = attributes["cost.work_unit"].value
-        num_ctas = int(attributes["cost.num_ctas"].value)
-        threads_per_program = int(attributes["cost.threads_per_program"].value)
+        metadata = BlockMetadata(
+            num_ctas=int(attributes["cost.num_ctas"].value),
+            threads_per_block=int(attributes["cost.threads_per_block"].value),
+        )
     except KeyError as error:
         raise ValueError(f"cost function is missing {error.args[0]}") from error
 
-    if work_unit != "program":
+    if work_unit != "block":
         raise ValueError(f"unsupported cost work unit: {work_unit}")
-    if num_ctas <= 0:
+    if metadata.num_ctas <= 0:
         raise ValueError("cost.num_ctas must be positive")
-    if threads_per_program <= 0:
-        raise ValueError("cost.threads_per_program must be positive")
-    return ProgramMetadata(
-        num_ctas=num_ctas,
-        threads_per_program=threads_per_program,
-    )
+    if metadata.threads_per_block <= 0:
+        raise ValueError("cost.threads_per_block must be positive")
+    return metadata
 
 
 def grid_program_count(grid_size: list[int]) -> int:
@@ -188,30 +189,6 @@ def grid_program_count(grid_size: list[int]) -> int:
     if any(dimension <= 0 for dimension in grid_size):
         raise ValueError(f"grid_size dimensions must be positive: {grid_size}")
     return math.prod(grid_size)
-
-
-def launch_work(
-    per_program_work: dict[str, float], grid_size: list[int]
-) -> dict[str, float]:
-    programs = grid_program_count(grid_size)
-    return {
-        pipeline: per_program_work[pipeline] * programs
-        for pipeline in PIPELINES
-    }
-
-
-def launch_rates(
-    rates: dict[str, float], sms: int, programs: int, num_ctas: int
-) -> dict[str, float]:
-    if sms <= 0:
-        raise ValueError("sms must be positive")
-    launched_ctas = programs * num_ctas
-    active_sms = min(sms, launched_ctas)
-    active_fraction = active_sms / sms
-    return {
-        pipeline: rates[pipeline] * active_fraction
-        for pipeline in PIPELINES
-    }
 
 
 def eval_work(exprs: dict[str, sympy.Expr], config: dict[str, Any]) -> dict[str, float]:
@@ -228,32 +205,47 @@ def eval_work(exprs: dict[str, sympy.Expr], config: dict[str, Any]) -> dict[str,
     return work
 
 
-def throughput_rates(spec: dict[str, Any], config: dict[str, Any]) -> dict[str, float]:
-    sms = float(spec["sms"])
+def per_sm_throughput_rates(
+    spec: dict[str, Any], config: dict[str, Any]
+) -> dict[str, float]:
+    sms = int(spec["sms"])
+    if sms <= 0:
+        raise ValueError("sms must be positive")
     clock_ghz = float(spec["assumed_clock_ghz"])
     per_sm = spec.get("per_sm_ops_per_cycle", {})
     utilization = spec.get("utilization", {})
 
     def ops_rate(key: str, util_key: str | None = None) -> float:
         util = float(utilization.get(util_key or key, 1.0))
-        return sms * clock_ghz * 1_000_000.0 * float(per_sm[key]) * util
+        return clock_ghz * 1_000_000.0 * float(per_sm[key]) * util
 
     tensor_key = config.get("tensor_throughput_key", "tensor_tf32")
     fp64_ops = per_sm.get("fp64")
     if fp64_ops is None:
-        fp64_ops = float(per_sm["fp32"]) * float(config.get("fp64_fallback_ratio_vs_fp32", 1.0 / 64.0))
+        fallback_ratio = float(
+            config.get("fp64_fallback_ratio_vs_fp32", 1.0 / 64.0)
+        )
+        fp64_ops = float(per_sm["fp32"]) * fallback_ratio
+    fp64_util = float(utilization.get("fp64", utilization.get("fp32", 1.0)))
     memory_util = float(utilization.get("memory", 1.0))
+    per_sm_memory_bandwidth = (
+        float(spec["memory_bandwidth_gb_s"]) * 1_000_000.0 * memory_util / sms
+    )
 
     return {
         "fp32": ops_rate("fp32"),
-        "fp64": sms * clock_ghz * 1_000_000.0 * float(fp64_ops) * float(utilization.get("fp64", utilization.get("fp32", 1.0))),
+        "fp64": clock_ghz * 1_000_000.0 * float(fp64_ops) * fp64_util,
         "sfu": ops_rate("sfu"),
         "tensor": ops_rate(tensor_key, tensor_key),
-        "memory": float(spec["memory_bandwidth_gb_s"]) * 1_000_000.0 * memory_util,
+        "memory": per_sm_memory_bandwidth,
     }
 
 
-def predict_ms(work: dict[str, float], rates: dict[str, float], launch_overhead_ms: float) -> tuple[float, str, dict[str, float]]:
+def predict_ms(
+    work: dict[str, float],
+    rates: dict[str, float],
+    launch_overhead_ms: float,
+) -> tuple[float, str, dict[str, float]]:
     pipeline_ms = {
         pipeline: (work[pipeline] / rates[pipeline] if rates[pipeline] else math.inf)
         for pipeline in PIPELINES
@@ -266,7 +258,8 @@ def analyze(args: argparse.Namespace) -> tuple[list[CostResult], list[AnalysisSk
     results = load_json(args.results)
     spec = load_json(args.gpu_spec)
     config = load_json(args.config)
-    rates = throughput_rates(spec, config)
+    rates = per_sm_throughput_rates(spec, config)
+    num_sms = int(spec["sms"])
     launch_overhead_ms = float(spec.get("launch_overhead_ms", 0.0))
 
     rows: list[CostResult] = []
@@ -283,20 +276,25 @@ def analyze(args: argparse.Namespace) -> tuple[list[CostResult], list[AnalysisSk
             continue
 
         try:
-            cost_mlir = run_cost_pass(args.triton_opt, args.plugin, ttgir_path, func_name, args.timeout)
-            exprs = pipeline_exprs(cost_mlir)
-            metadata = program_metadata(cost_mlir)
             grid_size = [int(v) for v in record.get("grid_size", [])]
             programs = grid_program_count(grid_size)
-            work = launch_work(eval_work(exprs, config), grid_size)
-            effective_rates = launch_rates(
-                rates,
-                int(spec["sms"]),
-                programs,
-                metadata.num_ctas,
+            cost_mlir = run_cost_pass(
+                args.triton_opt,
+                args.plugin,
+                ttgir_path,
+                func_name,
+                args.timeout,
+            )
+            exprs = pipeline_exprs(cost_mlir)
+            metadata = block_metadata(cost_mlir)
+            scheduled_work, schedule = schedule_work(
+                eval_work(exprs, config),
+                program_count=programs,
+                num_ctas=metadata.num_ctas,
+                num_sms=num_sms,
             )
             predicted, bottleneck, pipeline_ms = predict_ms(
-                work, effective_rates, launch_overhead_ms
+                scheduled_work, rates, launch_overhead_ms
             )
         except Exception as error:
             skips.append(AnalysisSkip(kernel, ttgir, str(error).splitlines()[0]))
@@ -309,13 +307,14 @@ def analyze(args: argparse.Namespace) -> tuple[list[CostResult], list[AnalysisSk
                 time_ms=float(record["time_ms"]),
                 predicted_ms=predicted,
                 bottleneck=bottleneck,
-                pipeline_work=work,
+                scheduled_work=scheduled_work,
                 pipeline_ms=pipeline_ms,
                 expression=str(sympy.Max(*exprs.values())),
                 category_expressions={name: str(expr) for name, expr in exprs.items()},
                 args=[str(arg) for arg in record.get("args", [])],
                 kwargs={str(k): str(v) for k, v in record.get("kwargs", {}).items()},
                 grid_size=grid_size,
+                schedule=schedule,
             )
         )
     return rows, skips

@@ -23,7 +23,7 @@ struct MyPass : public PassWrapper<MyPass, OperationPass<ModuleOp>> {
 
     StringRef getArgument() const final { return "my-cost-analysis"; }
     StringRef getDescription() const final {
-        return "Build and print a symbolic cost expression for func.func @main";
+        return "Build and print symbolic per-block GPU cost expressions";
     }
 
     void getDependentDialects(DialectRegistry &registry) const override {
@@ -42,7 +42,7 @@ struct MyPass : public PassWrapper<MyPass, OperationPass<ModuleOp>> {
         ModuleOp module = getOperation();
         GpuSpec gpuSpec;
 
-        // Get GPU Spec from module attribute
+        // Get block layout properties from module attributes.
         auto numWarps =
             module->getAttrOfType<IntegerAttr>("ttg.num-warps").getInt();
         auto threadsPerWarp =
@@ -54,9 +54,9 @@ struct MyPass : public PassWrapper<MyPass, OperationPass<ModuleOp>> {
         gpuSpec = {
             target.first.str(),
             target.second.str(),
-            static_cast<int32_t>(numCTAs),
-            static_cast<int32_t>(numWarps),
-            static_cast<int32_t>(threadsPerWarp),
+            numCTAs,
+            numWarps,
+            threadsPerWarp,
         };
 
         triton::FuncOp mainFunc;

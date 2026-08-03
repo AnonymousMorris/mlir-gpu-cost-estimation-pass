@@ -69,19 +69,19 @@ void analyze_cost(Operation &op, llvm::raw_ostream &os, const GpuSpec &gpu) {
         regionCosts.push_back(analyze_region(costBuilder, region, gpu));
     }
 
-    CostVector cost = costBuilder.sumCosts(regionCosts);
-    cost = costBuilder.mul(
-        cost, costBuilder.constantCost(gpu.threadsPerProgram()));
+    CostVector perThreadCost = costBuilder.sumCosts(regionCosts);
+    CostVector perBlockCost = costBuilder.mul(
+        perThreadCost, costBuilder.constantCost(gpu.threadsPerCTA()));
 
     func::FuncOp costFunc = costBuilder.getCost();
     OpBuilder &builder = costBuilder.getBuilder();
     costFunc->setAttr("cost.num_ctas",
                       builder.getI64IntegerAttr(gpu.numCTAs));
-    costFunc->setAttr("cost.threads_per_program",
-                      builder.getI64IntegerAttr(gpu.threadsPerProgram()));
-    costFunc->setAttr("cost.work_unit", builder.getStringAttr("program"));
+    costFunc->setAttr("cost.threads_per_block",
+                      builder.getI64IntegerAttr(gpu.threadsPerCTA()));
+    costFunc->setAttr("cost.work_unit", builder.getStringAttr("block"));
 
-    costBuilder.finalize(cost);
+    costBuilder.finalize(perBlockCost);
     costBuilder.simplify();
 
     os << "\n// Cost expression for " << op.getName();
