@@ -51,7 +51,11 @@ def build_equations(cost_function: CostFunction) -> dict[str, sympy.Expr]:
             values[op.result] = values[op.lhs] * values[op.rhs]
             continue
 
-        if isinstance(op, arith.CeilDivUIOp):
+        if isinstance(op, (arith.DivSIOp, arith.DivUIOp)):
+            values[op.result] = sympy.floor(values[op.lhs] / values[op.rhs])
+            continue
+
+        if isinstance(op, (arith.CeilDivSIOp, arith.CeilDivUIOp)):
             values[op.result] = sympy.ceiling(values[op.lhs] / values[op.rhs])
             continue
 

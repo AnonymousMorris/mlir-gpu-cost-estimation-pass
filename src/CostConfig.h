@@ -29,6 +29,7 @@ inline const CostConfig SimpleOpCosts = {
 
 inline const CostConfig NamedOpCosts = {
     {"arith.addf", "arith.addf"},
+    {"arith.subf", "arith.subf"},
     {"arith.addi", "arith.addi"},
     {"arith.andi", "arith.andi"},
     {"arith.cmpi", "arith.cmpi"},
@@ -54,6 +55,7 @@ inline const CostConfig NamedOpCosts = {
     {"arith.truncf", "arith.truncf"},
     {"arith.trunci", "arith.trunci"},
     {"arith.uitofp", "arith.uitofp"},
+    {"arith.xori", "arith.xori"},
     {"index.castu", "index.castu"},
     {"math.exp", "math.exp"},
     {"math.exp2", "math.exp2"},

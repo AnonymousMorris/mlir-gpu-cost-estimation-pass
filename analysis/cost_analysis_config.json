@@ -16,6 +16,7 @@
     "arith.fma64": {"pipeline": "fp64", "ops_per_count": 2.0},
     "arith.truncf": {"pipeline": "fp32", "ops_per_count": 1.0},
     "arith.uitofp": {"pipeline": "fp32", "ops_per_count": 1.0},
+    "arith.xori": {"pipeline": "fp32", "ops_per_count": 1.0},
     "arith.addi": {"pipeline": "fp32", "ops_per_count": 1.0},
     "arith.andi": {"pipeline": "fp32", "ops_per_count": 1.0},
     "arith.cmpi": {"pipeline": "fp32", "ops_per_count": 1.0},

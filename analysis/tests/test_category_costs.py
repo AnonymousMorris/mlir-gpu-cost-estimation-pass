@@ -56,6 +56,31 @@ BLOCK_COST_MLIR = """func.func @__cost_expr() -> (
 }"""
 
 
+DIVISION_COST_MLIR = """func.func @__cost_expr() -> (
+  f64 {cost.name = "fp32"},
+  f64 {cost.name = "fp64"},
+  f64 {cost.name = "sfu"},
+  f64 {cost.name = "tensor"},
+  f64 {cost.name = "memory"}
+) {
+  %c0 = arith.constant 0.000000e+00 : f64
+  %c3 = arith.constant 3 : i32
+  %c7 = arith.constant 7 : i32
+  %divs = arith.divsi %c7, %c3 : i32
+  %divu = arith.divui %c7, %c3 : i32
+  %ceils = arith.ceildivsi %c7, %c3 : i32
+  %ceilu = arith.ceildivui %c7, %c3 : i32
+  %divs_f = arith.uitofp %divs : i32 to f64
+  %divu_f = arith.uitofp %divu : i32 to f64
+  %ceils_f = arith.uitofp %ceils : i32 to f64
+  %ceilu_f = arith.uitofp %ceilu : i32 to f64
+  %div = arith.addf %divs_f, %divu_f : f64
+  %ceil = arith.addf %ceils_f, %ceilu_f : f64
+  %total = arith.addf %div, %ceil : f64
+  return %total, %c0, %c0, %c0, %c0 : f64, f64, f64, f64, f64
+}"""
+
+
 _, SCHEDULE = schedule_work(
     {pipeline: 1.0 for pipeline in PIPELINES},
     program_count=1,
@@ -101,6 +126,12 @@ def test_public_parser_returns_category_equations():
     assert tuple(equations) == PIPELINES
     assert equations["sfu"] == sympy.Symbol("math.exp")
     assert equations["memory"] == sympy.Symbol("triton.load_cost")
+
+
+def test_parser_handles_signed_and_unsigned_integer_division():
+    equations = build_equations(parse_cost_function(DIVISION_COST_MLIR))
+
+    assert equations["fp32"] == 10
 
 
 def test_pipeline_expressions_use_result_categories_without_reclassification():
