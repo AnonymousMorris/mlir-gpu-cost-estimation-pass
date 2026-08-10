@@ -70,8 +70,10 @@ CostType triton_cost_type(Operation &op) {
     if (name == "tt.dot") {
         return CostType::TENSOR;
     }
+    if (name == "ttg.local_alloc" || name == "ttg.local_load") {
+        return CostType::L1;
+    }
     if (name == "tt.load" || name == "tt.store" ||
-        name == "ttg.local_alloc" || name == "ttg.local_load" ||
         name == "ttg.async_copy_global_to_local") {
         return CostType::MEMORY;
     }
@@ -177,6 +179,15 @@ Value analyze_ttg_convert_layout(CostIRBuilder &costBuilder,
                       elemsPerThread);
 }
 
+CostVector analyze_ttg_async_copy(CostIRBuilder &costBuilder, Operation &op) {
+    Value copyCost = scale_cost(costBuilder, tensor_cost(op),
+                                elements_per_thread(op));
+    CostVector cost = costBuilder.zeroVector();
+    cost[static_cast<size_t>(CostType::L1)] = copyCost;
+    cost[static_cast<size_t>(CostType::MEMORY)] = copyCost;
+    return cost;
+}
+
 } // namespace
 
 
@@ -235,13 +246,13 @@ std::optional<CostVector> analyze_triton_tensor_op(CostIRBuilder &costBuilder,
 
     if (auto localAllocOp = dyn_cast<triton::gpu::LocalAllocOp>(op)) {
         return costBuilder.costVector(
-            CostType::MEMORY,
+            CostType::L1,
             analyze_ttg_local_alloc(costBuilder, localAllocOp, gpu));
     }
 
     if (auto localLoadOp = dyn_cast<triton::gpu::LocalLoadOp>(op)) {
         return costBuilder.costVector(
-            CostType::MEMORY,
+            CostType::L1,
             analyze_ttg_local_load(costBuilder, localLoadOp, gpu));
     }
 
@@ -249,6 +260,10 @@ std::optional<CostVector> analyze_triton_tensor_op(CostIRBuilder &costBuilder,
         return costBuilder.costVector(
             CostType::FP32,
             analyze_ttg_convert_layout(costBuilder, convertLayoutOp, gpu));
+    }
+
+    if (op.getName().getStringRef() == "ttg.async_copy_global_to_local") {
+        return analyze_ttg_async_copy(costBuilder, op);
     }
 
     auto costIt = NamedTensorOpCost.find(op.getName().getStringRef());

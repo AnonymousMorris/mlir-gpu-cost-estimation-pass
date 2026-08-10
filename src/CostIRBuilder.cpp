@@ -11,7 +11,7 @@
 namespace {
 
 constexpr std::array<llvm::StringLiteral, CostTypeCount> CostTypeNames = {
-    "fp32", "fp64", "sfu", "tensor", "memory"};
+    "fp32", "fp64", "sfu", "tensor", "l1", "memory"};
 
 } // namespace
 

@@ -6,7 +6,7 @@ runtime, and generates comparison plots.
 
 ## Cost function interface
 
-The pass emits one `@__cost_expr` function with five named results:
+The pass emits one `@__cost_expr` function with six named results:
 
 ```mlir
 func.func @__cost_expr(...) -> (
@@ -14,6 +14,7 @@ func.func @__cost_expr(...) -> (
   f64 {cost.name = "fp64"},
   f64 {cost.name = "sfu"},
   f64 {cost.name = "tensor"},
+  f64 {cost.name = "l1"},
   f64 {cost.name = "memory"}
 )
 ```
@@ -26,7 +27,12 @@ Each result is an independent symbolic equation:
 - `sfu`: special functions, including MLIR math operations and external
   elementwise functions such as `__nv_asinf`
 - `tensor`: tensor-core dot operations
-- `memory`: loads, stores, and modeled local-memory operations
+- `l1`: modeled on-chip shared/L1 reads and writes
+- `memory`: global-memory loads and stores
+
+An asynchronous global-to-local copy contributes its payload bytes to both
+`memory` and `l1`. Since category times are combined with `max`, this models the
+same transfer at both levels without adding the payload latency twice.
 
 The pass no longer collapses these categories into a scalar `Max` before
 returning them. Control-flow alternatives can still produce `Max` expressions
@@ -117,15 +123,19 @@ category time = scheduled SM work / per-SM category capacity
 
 Global memory bandwidth is currently divided evenly across the GPU's SMs. This
 is an explicit simplifying assumption, not a measured per-SM hardware property.
-The prediction output records the scheduling model, inputs, block count, and
-wave count. Future Python scheduling policies can therefore replace this model
-without changing or rerunning the static operation analysis.
+The L1 rate uses the configured per-SM bytes per cycle and clock. For the current
+Ampere specification, its 128 bytes/cycle represents the aggregate 32-bank,
+32-bit shared-memory data path exposed through the unified L1/shared-memory
+hardware. It does not model cache-hit rates, bank conflicts, or instruction
+issue limits yet. The prediction output records the scheduling model, inputs,
+block count, and wave count. Future Python scheduling policies can therefore
+replace this model without changing or rerunning the static operation analysis.
 
 The predicted bottleneck is the category with the largest time. Total predicted
 runtime is:
 
 ```text
-launch overhead + max(fp32, fp64, sfu, tensor, memory category times)
+launch overhead + max(fp32, fp64, sfu, tensor, l1, memory category times)
 ```
 
 Hardware rates and utilization factors come from `gpu_spec.json`. The Python
@@ -146,7 +156,7 @@ implementation under `src/`.
 The default JSON output is `output/cost_predictions.json`. Each successful
 prediction contains:
 
-- `category_expressions`: the five simplified symbolic equations
+- `category_expressions`: the six simplified symbolic equations
 - `scheduled_work`: evaluated busiest-SM work for each category
 - `schedule`: scheduler model, launch inputs, block count, and wave count
 - `pipeline_ms`: estimated time for each category

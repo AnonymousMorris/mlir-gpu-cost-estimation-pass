@@ -70,5 +70,34 @@ if(BUILD_TESTING)
             PASS_REGULAR_EXPRESSION
                 "arith.divsi %[0-9]+, %c64_i32 : i32"
         )
+
+        add_test(
+            NAME shared-memory-l1-cost-category
+            COMMAND
+                ${TRITON_OPT_EXECUTABLE}
+                --load-pass-plugin=$<TARGET_FILE:MyPass>
+                "--pass-pipeline=builtin.module(my-cost-analysis{func-name=tiled_matmul_kernel})"
+                -o ${CMAKE_CURRENT_BINARY_DIR}/shared_memory_l1.out.mlir
+                ${CMAKE_CURRENT_SOURCE_DIR}/../tests/triton/tiled_matmul.ttgir
+        )
+        set_tests_properties(shared-memory-l1-cost-category PROPERTIES
+            PASS_REGULAR_EXPRESSION "cost.name = \"l1\""
+        )
+
+        find_program(UV_EXECUTABLE NAMES uv)
+        if(UV_EXECUTABLE)
+            add_test(
+                NAME shared-memory-l1-cost-routing
+                COMMAND
+                    ${UV_EXECUTABLE}
+                    run
+                    --project ${CMAKE_CURRENT_SOURCE_DIR}/../analysis
+                    python
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../analysis/tests/verify_l1_pass.py
+                    ${TRITON_OPT_EXECUTABLE}
+                    $<TARGET_FILE:MyPass>
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/triton/tiled_matmul.ttgir
+            )
+        endif()
     endif()
 endif()

@@ -10,6 +10,7 @@ CATEGORIES = {
     "fp64": 0.0,
     "sfu": 2.0,
     "tensor": 4.0,
+    "l1": 8.0,
     "memory": 20.0,
 }
 

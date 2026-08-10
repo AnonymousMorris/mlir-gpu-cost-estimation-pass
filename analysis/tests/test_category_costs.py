@@ -8,6 +8,7 @@ from src.cost_model import (
     grid_program_count,
     per_sm_throughput_rates,
     pipeline_exprs,
+    predict_ms,
 )
 from src.cost_pass import extract_cost_function, pass_pipeline
 from src.plotting import kernel_color_map, plot, plottable_rows
@@ -21,18 +22,20 @@ CATEGORY_COST_MLIR = """func.func @__cost_expr(
   %arith.addf32: f64 {cost.name = "arith.addf32"},
   %math.exp: f64 {cost.name = "math.exp"},
   %triton.dot_cost: f64 {cost.name = "triton.dot_cost"},
-  %triton.load_cost: f64 {cost.name = "triton.load_cost"}
+  %triton.load_cost: f64 {cost.name = "triton.load_cost"},
+  %triton_gpu.local_load_cost: f64 {cost.name = "triton_gpu.local_load_cost"}
 ) -> (
   f64 {cost.name = "fp32"},
   f64 {cost.name = "fp64"},
   f64 {cost.name = "sfu"},
   f64 {cost.name = "tensor"},
+  f64 {cost.name = "l1"},
   f64 {cost.name = "memory"}
 ) {
   %c0 = arith.constant 0.000000e+00 : f64
   %c2 = arith.constant 2.000000e+00 : f64
   %fp32 = arith.mulf %arith.addf32, %c2 : f64
-  return %fp32, %c0, %math.exp, %triton.dot_cost, %triton.load_cost : f64, f64, f64, f64, f64
+  return %fp32, %c0, %math.exp, %triton.dot_cost, %triton_gpu.local_load_cost, %triton.load_cost : f64, f64, f64, f64, f64, f64
 }"""
 
 
@@ -41,6 +44,7 @@ BLOCK_COST_MLIR = """func.func @__cost_expr() -> (
   f64 {cost.name = "fp64"},
   f64 {cost.name = "sfu"},
   f64 {cost.name = "tensor"},
+  f64 {cost.name = "l1"},
   f64 {cost.name = "memory"}
 ) attributes {
   cost.num_ctas = 2 : i64,
@@ -48,7 +52,7 @@ BLOCK_COST_MLIR = """func.func @__cost_expr() -> (
   cost.work_unit = "block"
 } {
   %c0 = arith.constant 0.000000e+00 : f64
-  return %c0, %c0, %c0, %c0, %c0 : f64, f64, f64, f64, f64
+  return %c0, %c0, %c0, %c0, %c0, %c0 : f64, f64, f64, f64, f64, f64
 }"""
 
 
@@ -57,6 +61,7 @@ DIVISION_COST_MLIR = """func.func @__cost_expr() -> (
   f64 {cost.name = "fp64"},
   f64 {cost.name = "sfu"},
   f64 {cost.name = "tensor"},
+  f64 {cost.name = "l1"},
   f64 {cost.name = "memory"}
 ) {
   %c0 = arith.constant 0.000000e+00 : f64
@@ -73,7 +78,7 @@ DIVISION_COST_MLIR = """func.func @__cost_expr() -> (
   %div = arith.addf %divs_f, %divu_f : f64
   %ceil = arith.addf %ceils_f, %ceilu_f : f64
   %total = arith.addf %div, %ceil : f64
-  return %total, %c0, %c0, %c0, %c0 : f64, f64, f64, f64, f64
+  return %total, %c0, %c0, %c0, %c0, %c0 : f64, f64, f64, f64, f64, f64
 }"""
 
 
@@ -112,6 +117,7 @@ def test_builds_one_equation_for_each_named_cost_result():
         "fp64": sympy.Float(0),
         "sfu": sympy.Symbol("math.exp"),
         "tensor": sympy.Symbol("triton.dot_cost"),
+        "l1": sympy.Symbol("triton_gpu.local_load_cost"),
         "memory": sympy.Symbol("triton.load_cost"),
     }
 
@@ -121,6 +127,7 @@ def test_public_parser_returns_category_equations():
 
     assert tuple(equations) == PIPELINES
     assert equations["sfu"] == sympy.Symbol("math.exp")
+    assert equations["l1"] == sympy.Symbol("triton_gpu.local_load_cost")
     assert equations["memory"] == sympy.Symbol("triton.load_cost")
 
 
@@ -134,6 +141,7 @@ def test_pipeline_expressions_use_result_categories_without_reclassification():
     expressions = pipeline_exprs(cost_equations(CATEGORY_COST_MLIR))
 
     assert tuple(expressions) == PIPELINES
+    assert expressions["l1"] == sympy.Symbol("triton_gpu.local_load_cost")
     assert expressions["memory"] == sympy.Symbol("triton.load_cost")
     assert expressions["tensor"] == sympy.Symbol("triton.dot_cost")
 
@@ -198,6 +206,7 @@ def test_builds_per_sm_throughput_rates():
             "sfu": 16,
             "tensor_tf32": 512,
         },
+        "per_sm_bytes_per_cycle": {"l1": 128},
         "utilization": {},
     }
 
@@ -207,7 +216,20 @@ def test_builds_per_sm_throughput_rates():
     assert rates["fp64"] == 2_000_000.0
     assert rates["sfu"] == 16_000_000.0
     assert rates["tensor"] == 512_000_000.0
+    assert rates["l1"] == 128_000_000.0
     assert rates["memory"] == 10_000_000.0
+
+
+def test_predicts_l1_bottleneck():
+    work = {pipeline: 0.0 for pipeline in PIPELINES}
+    work["l1"] = 2.0
+    rates = {pipeline: 1.0 for pipeline in PIPELINES}
+
+    predicted_ms, bottleneck, pipeline_ms = predict_ms(work, rates, 0.5)
+
+    assert bottleneck == "l1"
+    assert pipeline_ms["l1"] == 2.0
+    assert predicted_ms == 2.5
 
 
 def test_summary_reports_symmetric_multiplicative_accuracy():

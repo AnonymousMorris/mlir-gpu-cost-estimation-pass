@@ -16,6 +16,7 @@ BOTTLENECK_MARKERS = {
     "fp64": "P",
     "sfu": "X",
     "tensor": "s",
+    "l1": "D",
     "memory": "^",
 }
 PLOT_EXCLUDED_KERNELS = frozenset({"matmul_kernel_persistent"})

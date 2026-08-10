@@ -14,6 +14,7 @@ COST_MLIR = """func.func @__cost_expr() -> (
   f64 {cost.name = "fp64"},
   f64 {cost.name = "sfu"},
   f64 {cost.name = "tensor"},
+  f64 {cost.name = "l1"},
   f64 {cost.name = "memory"}
 ) attributes {
   cost.num_ctas = 1 : i64,
@@ -22,7 +23,7 @@ COST_MLIR = """func.func @__cost_expr() -> (
 } {
   %zero = arith.constant 0.000000e+00 : f64
   %memory = arith.constant 1.280000e+02 : f64
-  return %zero, %zero, %zero, %zero, %memory : f64, f64, f64, f64, f64
+  return %zero, %zero, %zero, %zero, %zero, %memory : f64, f64, f64, f64, f64, f64
 }"""
 
 

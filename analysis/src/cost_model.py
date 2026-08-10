@@ -6,7 +6,7 @@ from typing import Any
 import sympy
 
 
-PIPELINES = ("fp32", "fp64", "sfu", "tensor", "memory")
+PIPELINES = ("fp32", "fp64", "sfu", "tensor", "l1", "memory")
 
 
 def pipeline_exprs(
@@ -57,20 +57,25 @@ def per_sm_throughput_rates(
     if sms <= 0:
         raise ValueError("sms must be positive")
     clock_ghz = float(spec["assumed_clock_ghz"])
-    per_sm = spec.get("per_sm_ops_per_cycle", {})
+    per_sm_ops = spec.get("per_sm_ops_per_cycle", {})
+    per_sm_bytes = spec.get("per_sm_bytes_per_cycle", {})
     utilization = spec.get("utilization", {})
 
     def ops_rate(key: str, util_key: str | None = None) -> float:
         util = float(utilization.get(util_key or key, 1.0))
-        return clock_ghz * 1_000_000.0 * float(per_sm[key]) * util
+        return clock_ghz * 1_000_000.0 * float(per_sm_ops[key]) * util
+
+    def bytes_rate(key: str) -> float:
+        util = float(utilization.get(key, 1.0))
+        return clock_ghz * 1_000_000.0 * float(per_sm_bytes[key]) * util
 
     tensor_key = config.get("tensor_throughput_key", "tensor_tf32")
-    fp64_ops = per_sm.get("fp64")
+    fp64_ops = per_sm_ops.get("fp64")
     if fp64_ops is None:
         fallback_ratio = float(
             config.get("fp64_fallback_ratio_vs_fp32", 1.0 / 64.0)
         )
-        fp64_ops = float(per_sm["fp32"]) * fallback_ratio
+        fp64_ops = float(per_sm_ops["fp32"]) * fallback_ratio
     fp64_util = float(utilization.get("fp64", utilization.get("fp32", 1.0)))
     memory_util = float(utilization.get("memory", 1.0))
     per_sm_memory_bandwidth = (
@@ -82,6 +87,7 @@ def per_sm_throughput_rates(
         "fp64": clock_ghz * 1_000_000.0 * float(fp64_ops) * fp64_util,
         "sfu": ops_rate("sfu"),
         "tensor": ops_rate(tensor_key, tensor_key),
+        "l1": bytes_rate("l1"),
         "memory": per_sm_memory_bandwidth,
     }
 
