@@ -132,9 +132,9 @@ std::optional<CostVector> analyze_op(CostIRBuilder &costBuilder, Operation &op,
         return costBuilder.max(then_cost, else_cost);
     }
 
-    if (isa<scf::WhileOp>(op)) {
-        // TODO: Do proper analysis later. 
-        exit(-1);
+    if (auto whileOp = dyn_cast<scf::WhileOp>(op)) {
+        whileOp.emitOpError("cost analysis does not support scf.while");
+        std::exit(EXIT_FAILURE);
     }
     
     // Func Call Op
@@ -162,7 +162,6 @@ std::optional<CostVector> analyze_op(CostIRBuilder &costBuilder, Operation &op,
     op.emitError("unknown op in cost analysis: ")
         << op.getName().getStringRef();
     llvm::report_fatal_error("unknown op in cost analysis");
-    // exit(-1);
 }
 
 bool hasTensorType(Operation &op) {

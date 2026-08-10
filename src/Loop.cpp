@@ -3,6 +3,8 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/IRMapping.h"
 
+#include <cstdlib>
+
 using namespace mlir;
 
 struct GpuSpec;
@@ -69,7 +71,8 @@ Value build_for_trip_count(CostIRBuilder &costBuilder, scf::ForOp forOp) {
         clone_bound_expr(costBuilder, forOp.getStep(), mapping);
 
     if (failed(lower) || failed(upper) || failed(step)) {
-        return costBuilder.indexConstant(1);
+        forOp.emitOpError("cannot analyze symbolic loop trip count");
+        std::exit(EXIT_FAILURE);
     }
 
     OpBuilder &builder = costBuilder.getBuilder();
