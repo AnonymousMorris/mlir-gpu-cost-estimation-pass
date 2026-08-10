@@ -45,15 +45,31 @@ def run_cost_pass(
     return extract_cost_function(output)
 
 
+def _brace_end(text: str, open_index: int) -> int | None:
+    """Return the index of the brace at `open_index` that closes it, if any."""
+    depth = 0
+    for index in range(open_index, len(text)):
+        if text[index] == "{":
+            depth += 1
+        elif text[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
+
+
 def extract_cost_function(text: str) -> str:
     match = COST_FUNC_RE.search(text)
     if not match:
         raise ValueError("pass output did not contain func.func @__cost_expr")
 
-    start = match.start()
     arrow = text.find("->", match.end())
     if arrow < 0:
         raise ValueError("cost function has no return type")
+
+    # Skip the return-type parens (which may themselves contain per-result
+    # `{cost.name = ...}` attribute dicts) to find the top-level brace that
+    # starts either an optional `attributes { ... }` clause or the body.
     result_paren_depth = 0
     brace_start = None
     index = arrow + 2
@@ -66,14 +82,10 @@ def extract_cost_function(text: str) -> str:
         elif char == "{" and result_paren_depth == 0:
             prefix = text[arrow + 2 : index].rstrip()
             if prefix.endswith("attributes"):
-                attribute_depth = 1
-                while attribute_depth and index + 1 < len(text):
-                    index += 1
-                    if text[index] == "{":
-                        attribute_depth += 1
-                    elif text[index] == "}":
-                        attribute_depth -= 1
-                index += 1
+                end = _brace_end(text, index)
+                if end is None:
+                    break
+                index = end + 1
                 continue
             brace_start = index
             break
@@ -81,13 +93,7 @@ def extract_cost_function(text: str) -> str:
     if brace_start is None:
         raise ValueError("cost function has no body")
 
-    depth = 0
-    for index in range(brace_start, len(text)):
-        char = text[index]
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                return text[start : index + 1]
-    raise ValueError("cost function body is unterminated")
+    body_end = _brace_end(text, brace_start)
+    if body_end is None:
+        raise ValueError("cost function body is unterminated")
+    return text[match.start() : body_end + 1]

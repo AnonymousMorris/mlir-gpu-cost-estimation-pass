@@ -27,27 +27,15 @@ def build_equations(cost_function: CostFunction) -> dict[str, sympy.Expr]:
             values[op.result] = sympy.Float(op.literal_value)
             continue
 
-        if isinstance(op, arith.AddFOp):
+        if isinstance(op, (arith.AddFOp, arith.AddIOp)):
             values[op.result] = values[op.lhs] + values[op.rhs]
             continue
 
-        if isinstance(op, arith.AddIOp):
-            values[op.result] = values[op.lhs] + values[op.rhs]
-            continue
-
-        if isinstance(op, arith.SubFOp):
+        if isinstance(op, (arith.SubFOp, arith.SubIOp)):
             values[op.result] = values[op.lhs] - values[op.rhs]
             continue
 
-        if isinstance(op, arith.SubIOp):
-            values[op.result] = values[op.lhs] - values[op.rhs]
-            continue
-
-        if isinstance(op, arith.MulFOp):
-            values[op.result] = values[op.lhs] * values[op.rhs]
-            continue
-
-        if isinstance(op, arith.MulIOp):
+        if isinstance(op, (arith.MulFOp, arith.MulIOp)):
             values[op.result] = values[op.lhs] * values[op.rhs]
             continue
 
