@@ -39,16 +39,8 @@ def init_args(device):
 
 
 def iter_args(device):
-    for n_rows, n_cols in (
-        (64, 128),
-        (256, 256),
-        (1024, 512),
-        (1823, 781),
-        (4096, 1024),
-    ):
-        for num_warps in (4, 8):
-            for pipeline_stages in (2, 4):
-                yield make_args(device, n_rows, n_cols, num_warps, pipeline_stages=pipeline_stages)
+    for n_cols in range(256, 12673, 128):
+        yield make_args(device, n_rows=4096, n_cols=n_cols, num_warps=8, pipeline_stages=2)
 
 
 def make_args(device, n_rows, n_cols, num_warps, pipeline_stages):

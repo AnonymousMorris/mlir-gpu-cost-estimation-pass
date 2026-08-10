@@ -42,16 +42,24 @@ KERNEL = _layer_norm_fwd_fused
 
 
 def init_args(device):
-    return make_args(device, M=128, N=1024, eps=1e-5, block_size=1024)
+    return make_args(device, M=4096, N=1024, eps=1e-5, block_size=1024, num_warps=4)
 
 
 def iter_args(device):
-    for M, N in ((64, 256), (128, 512), (128, 1024), (256, 1024), (128, 2048)):
-        for eps in (1e-5, 1e-6):
-            yield make_args(device, M, N, eps=eps, block_size=triton.next_power_of_2(N))
+    for N in range(1024, 15873, 512):
+        block_size = triton.next_power_of_2(N)
+        num_warps = 4 if block_size == 1024 else 8
+        yield make_args(
+            device,
+            M=4096,
+            N=N,
+            eps=1e-5,
+            block_size=block_size,
+            num_warps=num_warps,
+        )
 
 
-def make_args(device, M, N, eps, block_size):
+def make_args(device, M, N, eps, block_size, num_warps):
     x = torch.randn((M, N), device=device, dtype=torch.float16)
     y = torch.empty_like(x)
     w = torch.ones((N,), device=device, dtype=torch.float16)
@@ -60,5 +68,5 @@ def make_args(device, M, N, eps, block_size):
     rstd = torch.empty((M,), device=device, dtype=torch.float32)
     grid = lambda meta: (M,)
     args = (x, y, w, b, mean, rstd, x.stride(0), N, eps)
-    kwargs = {"BLOCK_SIZE": block_size, "num_warps": 4}
+    kwargs = {"BLOCK_SIZE": block_size, "num_warps": num_warps}
     return args, kwargs, grid

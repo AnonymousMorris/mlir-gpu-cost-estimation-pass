@@ -157,14 +157,10 @@ def init_args(device):
 
 
 def iter_args(device):
-    for Z, H, N_CTX, HEAD_DIM in (
-        (1, 2, 128, 64),
-        (1, 4, 128, 64),
-        (1, 2, 256, 64),
-        (1, 2, 128, 128),
-    ):
-        for causal in (False, True):
-            yield make_args(device, Z=Z, H=H, N_CTX=N_CTX, HEAD_DIM=HEAD_DIM, causal=causal)
+    for HEAD_DIM in (64, 128):
+        for N_CTX in (1024, 2048, 4096, 8192, 16384):
+            for causal in (True, False):
+                yield make_args(device, Z=4, H=32, N_CTX=N_CTX, HEAD_DIM=HEAD_DIM, causal=causal)
 
 
 def make_args(device, Z, H, N_CTX, HEAD_DIM, causal):

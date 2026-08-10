@@ -20,6 +20,10 @@ def grouped_matmul_kernel(
     g_lds,
     # number of gemms
     group_size,
+    # concrete problem shape, retained in the compiled-case metadata
+    M: tl.constexpr,
+    N: tl.constexpr,
+    K: tl.constexpr,
     # number of virtual SM
     NUM_SM: tl.constexpr,
     # tile sizes
@@ -93,13 +97,21 @@ def init_args(device):
 
 
 def iter_args(device):
-    for group_size in (2, 4, 8):
-        for shape in ((128, 128, 128), (256, 128, 128), (128, 256, 128), (256, 256, 256)):
-            for num_sm in (8, 16):
-                try:
-                    yield make_args(device, group_size=group_size, shape=shape, num_sm=num_sm)
-                finally:
-                    release_args()
+    shapes = (
+        (128, 128, 128),
+        (256, 256, 256),
+        (512, 512, 512),
+        (1024, 1024, 1024),
+        (128, 8192, 8192),
+        (256, 8192, 8192),
+        (512, 8192, 8192),
+        (1024, 8192, 8192),
+    )
+    for shape in shapes:
+        try:
+            yield make_args(device, group_size=4, shape=shape, num_sm=30)
+        finally:
+            release_args()
 
 
 def release_args():
@@ -122,6 +134,9 @@ def make_args(device, group_size, shape, num_sm):
     grid = lambda meta: (meta["NUM_SM"],)
     args = (d_a_ptrs, d_b_ptrs, d_c_ptrs, d_g_sizes, d_g_lds, group_size)
     kwargs = {
+        "M": M,
+        "N": N,
+        "K": K,
         "NUM_SM": num_sm,
         "BLOCK_SIZE_M": 64,
         "BLOCK_SIZE_N": 64,

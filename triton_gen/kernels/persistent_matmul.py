@@ -72,9 +72,8 @@ def init_args(device):
 
 
 def iter_args(device):
-    for M, N, K in ((128, 128, 128), (256, 256, 256), (512, 256, 128), (256, 512, 128), (512, 512, 256)):
-        for num_sms in (8, 16, 32):
-            yield make_args(device, M, N, K, num_sms=num_sms)
+    for K in range(128, 1025, 128):
+        yield make_args(device, M=8192, N=8192, K=K, num_sms=30)
 
 
 def make_args(device, M, N, K, num_sms):

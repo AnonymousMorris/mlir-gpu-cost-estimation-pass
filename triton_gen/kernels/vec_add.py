@@ -23,9 +23,8 @@ def init_args(device):
 
 
 def iter_args(device):
-    for size in (1024, 4096, 65536, 98432, 262144):
-        for block_size in (128, 256, 512, 1024):
-            yield make_args(device, size, block_size)
+    for exponent in range(12, 28):
+        yield make_args(device, size=2**exponent, block_size=1024)
 
 
 def make_args(device, size, block_size):

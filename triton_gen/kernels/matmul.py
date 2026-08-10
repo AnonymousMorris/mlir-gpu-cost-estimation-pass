@@ -70,35 +70,39 @@ def init_args(device):
 
 
 def iter_args(device):
-    shapes = (
-        (128, 128, 128),
-        (256, 256, 256),
-        (512, 256, 128),
-        (256, 512, 128),
-        (512, 512, 256),
-    )
     block_configs = (
-        (32, 64, 32, 4, 4, 4),
-        (64, 64, 32, 8, 4, 4),
-        (64, 128, 32, 8, 4, 4),
+        (128, 256, 64, 8, 8, 3),
+        (64, 256, 32, 8, 4, 4),
+        (128, 128, 32, 8, 4, 4),
         (128, 64, 32, 8, 4, 4),
+        (64, 128, 32, 8, 4, 4),
+        (128, 32, 32, 8, 4, 4),
+        (64, 32, 32, 8, 2, 5),
+        (32, 64, 32, 8, 2, 5),
+        (128, 256, 128, 8, 8, 3),
+        (256, 128, 128, 8, 8, 3),
+        (256, 64, 128, 8, 4, 4),
+        (64, 256, 128, 8, 4, 4),
+        (128, 128, 128, 8, 4, 4),
+        (128, 64, 64, 8, 4, 4),
+        (64, 128, 64, 8, 4, 4),
+        (128, 32, 64, 8, 4, 4),
     )
-    for M, N, K in shapes:
+    for size in range(256, 4097, 128):
         for block_m, block_n, block_k, group_m, num_warps, num_stages in block_configs:
-            for activation in ("", "leaky_relu"):
-                yield make_args(
-                    device,
-                    M,
-                    N,
-                    K,
-                    block_m,
-                    block_n,
-                    block_k,
-                    group_m,
-                    activation,
-                    num_warps=num_warps,
-                    num_stages=num_stages,
-                )
+            yield make_args(
+                device,
+                size,
+                size,
+                size,
+                block_m,
+                block_n,
+                block_k,
+                group_m,
+                "",
+                num_warps=num_warps,
+                num_stages=num_stages,
+            )
 
 
 def make_args(device, M, N, K, block_m, block_n, block_k, group_m, activation, num_warps=4, num_stages=4):

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import torch
 import triton
+from triton.runtime.errors import OutOfResources
 from tqdm import tqdm
 from kernels import KERNEL_MODULES
 
@@ -21,12 +22,12 @@ class KernelRunRecord:
     kwargs: dict[str, str]
     grid_size: list[int]
     block_size: dict[str, str]
-    compiled_name: str
-    ttgir_filename: str
-    time_ms: float
-    time_p20_ms: float
-    time_p80_ms: float
-    time_cv: float
+    compiled_name: str | None
+    ttgir_filename: str | None
+    time_ms: float | None
+    time_p20_ms: float | None
+    time_p80_ms: float | None
+    time_cv: float | None
     status: str = "ok"
     error: str | None = None
 
@@ -149,6 +150,11 @@ def benchmark_kernel(kernel, grid, args, kwargs, warmup_ms, rep_ms):
     return h, time_ms, time_p20_ms, time_p80_ms, time_cv
 
 
+def clear_cuda_cache():
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate Triton TTGIR files and benchmark timings.")
     parser.add_argument(
@@ -239,14 +245,45 @@ if __name__ == "__main__":
                     )
                 continue
 
-            h, elapsed_ms, time_p20_ms, time_p80_ms, time_cv = benchmark_kernel(
-                kernel,
-                grid,
-                kernel_args,
-                kwargs,
-                warmup_ms=cli_args.warmup_ms,
-                rep_ms=cli_args.rep_ms,
-            )
+            config_name = f"{kernel_name}_{record_name(kernel_args, kwargs)}"
+            try:
+                h, elapsed_ms, time_p20_ms, time_p80_ms, time_cv = benchmark_kernel(
+                    kernel,
+                    grid,
+                    kernel_args,
+                    kwargs,
+                    warmup_ms=cli_args.warmup_ms,
+                    rep_ms=cli_args.rep_ms,
+                )
+            except (OutOfResources, torch.cuda.OutOfMemoryError) as exc:
+                run_record = KernelRunRecord(
+                    args=run_args,
+                    kwargs=run_kwargs,
+                    grid_size=grid_size,
+                    block_size=block_size,
+                    compiled_name=None,
+                    ttgir_filename=None,
+                    time_ms=None,
+                    time_p20_ms=None,
+                    time_p80_ms=None,
+                    time_cv=None,
+                    status="skipped",
+                    error=f"{type(exc).__name__}: {exc}",
+                )
+                kernel_runs.append(asdict(run_record))
+                kernel_progress.write(config_name)
+                kernel_progress.write(f"skipped: {type(exc).__name__}: {exc}\n")
+                save_resume_state(
+                    result,
+                    kernel_names,
+                    cli_args.warmup_ms,
+                    cli_args.rep_ms,
+                    kernel_index,
+                    case_index + 1,
+                )
+                continue
+            finally:
+                clear_cuda_cache()
 
             # save the kernel module
             launch_name = f"{h.name}_{record_name(kernel_args, kwargs)}"
