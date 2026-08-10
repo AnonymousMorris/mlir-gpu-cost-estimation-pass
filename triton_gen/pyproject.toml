@@ -10,3 +10,11 @@ dependencies = [
     "tqdm>=4.67.3",
     "triton>=3.7.0",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
