@@ -5,6 +5,7 @@ import sympy
 
 from src.cost_model import (
     PIPELINES,
+    eval_work,
     grid_program_count,
     per_sm_throughput_rates,
     pipeline_exprs,
@@ -103,6 +104,7 @@ def result(kernel: str, predicted_ms: float = 1.0) -> CostResult:
         category_expressions={pipeline: "1.0" for pipeline in PIPELINES},
         args=[],
         kwargs={},
+        scalar_args={},
         grid_size=[1],
         schedule=SCHEDULE,
     )
@@ -193,6 +195,53 @@ def test_grid_program_count_multiplies_all_dimensions():
 def test_grid_program_count_rejects_invalid_grids(grid_size):
     with pytest.raises(ValueError, match="grid_size"):
         grid_program_count(grid_size)
+
+
+def test_evaluates_runtime_symbols_separately_from_cost_weights():
+    K = sympy.Symbol("K")
+    expressions = {pipeline: sympy.Float(0) for pipeline in PIPELINES}
+    expressions["tensor"] = 2_097_152 * sympy.ceiling(K / 64)
+
+    work = eval_work(
+        expressions,
+        {"defaults": {"ops_per_count": 1.0}},
+        {"K": 256},
+        weight_symbols=frozenset(),
+        runtime_symbols=frozenset({"K"}),
+    )
+
+    assert work["tensor"] == 8_388_608.0
+
+
+def test_rejects_missing_runtime_symbol_bindings():
+    K = sympy.Symbol("K")
+    expressions = {pipeline: sympy.Float(0) for pipeline in PIPELINES}
+    expressions["tensor"] = K
+
+    with pytest.raises(ValueError, match="missing runtime argument bindings: K"):
+        eval_work(
+            expressions,
+            {},
+            {},
+            weight_symbols=frozenset(),
+            runtime_symbols=frozenset({"K"}),
+        )
+
+
+def test_applies_default_only_to_declared_weight_symbols():
+    weight = sympy.Symbol("new.operation")
+    expressions = {pipeline: sympy.Float(0) for pipeline in PIPELINES}
+    expressions["fp32"] = 4 * weight
+
+    work = eval_work(
+        expressions,
+        {"defaults": {"ops_per_count": 2.0}},
+        {},
+        weight_symbols=frozenset({"new.operation"}),
+        runtime_symbols=frozenset(),
+    )
+
+    assert work["fp32"] == 8.0
 
 
 def test_builds_per_sm_throughput_rates():

@@ -1,6 +1,8 @@
 from dataclasses import asdict, dataclass
 import argparse
 import json
+import math
+from numbers import Integral, Real
 import os
 import re
 from pathlib import Path
@@ -14,12 +16,13 @@ from kernels import KERNEL_MODULES
 
 RESULT_PATH = Path("results/result.json")
 RESUME_PATH = Path("results/run_state.json.tmp")
-RESUME_VERSION = 1
+RESUME_VERSION = 2
 
 @dataclass
 class KernelRunRecord:
     args: list[str]
     kwargs: dict[str, str]
+    scalar_args: dict[str, int | float]
     grid_size: list[int]
     block_size: dict[str, str]
     compiled_name: str | None
@@ -126,6 +129,33 @@ def record_block_size(kwargs):
     }
 
 
+def record_scalar_args(kernel, args, kwargs):
+    argument_names = list(kernel.arg_names)
+    if len(args) > len(argument_names):
+        raise ValueError("kernel has more positional values than named arguments")
+
+    arguments = dict(zip(argument_names, args))
+    for name in argument_names:
+        if name not in kwargs:
+            continue
+        if name in arguments:
+            raise ValueError(f"kernel argument {name} was passed more than once")
+        arguments[name] = kwargs[name]
+
+    scalars = {}
+    for name, value in arguments.items():
+        if isinstance(value, bool):
+            scalars[name] = int(value)
+        elif isinstance(value, Integral):
+            scalars[name] = int(value)
+        elif isinstance(value, Real):
+            normalized = float(value)
+            if not math.isfinite(normalized):
+                raise ValueError(f"kernel argument {name} must be finite")
+            scalars[name] = normalized
+    return scalars
+
+
 def write_ttgir(name, ttgir):
     os.makedirs("results/ttgir", exist_ok=True)
     filename = f"{safe_filename(name)}.ttgir"
@@ -224,6 +254,7 @@ if __name__ == "__main__":
             run_kwargs = {
                 key: str(value) for key, value in sorted(kwargs.items())
             }
+            scalar_args = record_scalar_args(kernel, kernel_args, kwargs)
             grid_size = record_grid_size(grid, kwargs)
             block_size = record_block_size(kwargs)
 
@@ -232,6 +263,7 @@ if __name__ == "__main__":
                 current_metadata = {
                     "args": run_args,
                     "kwargs": run_kwargs,
+                    "scalar_args": scalar_args,
                     "grid_size": grid_size,
                     "block_size": block_size,
                 }
@@ -259,6 +291,7 @@ if __name__ == "__main__":
                 run_record = KernelRunRecord(
                     args=run_args,
                     kwargs=run_kwargs,
+                    scalar_args=scalar_args,
                     grid_size=grid_size,
                     block_size=block_size,
                     compiled_name=None,
@@ -292,6 +325,7 @@ if __name__ == "__main__":
             runRecord = KernelRunRecord(
                 args=run_args,
                 kwargs=run_kwargs,
+                scalar_args=scalar_args,
                 grid_size=grid_size,
                 block_size=block_size,
                 compiled_name=h.name,

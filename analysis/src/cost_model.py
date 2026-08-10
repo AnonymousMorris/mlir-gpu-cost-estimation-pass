@@ -35,18 +35,66 @@ def grid_program_count(grid_size: list[int]) -> int:
 def eval_work(
     exprs: dict[str, sympy.Expr],
     config: dict[str, Any],
+    runtime_args: dict[str, Any],
+    *,
+    weight_symbols: frozenset[str],
+    runtime_symbols: frozenset[str],
 ) -> dict[str, float]:
-    substitutions = {
-        sympy.Symbol(name): float(spec.get("ops_per_count", 1.0))
-        for name, spec in config.get("parameters", {}).items()
+    overlap = weight_symbols & runtime_symbols
+    if overlap:
+        raise ValueError(
+            "cost symbols have conflicting roles: " + ", ".join(sorted(overlap))
+        )
+
+    free_symbols = set().union(*(expr.free_symbols for expr in exprs.values()))
+    declared_symbols = {
+        sympy.Symbol(name) for name in weight_symbols | runtime_symbols
     }
+    unclassified = free_symbols - declared_symbols
+    if unclassified:
+        raise ValueError(
+            "unclassified cost symbols: "
+            + ", ".join(sorted(str(symbol) for symbol in unclassified))
+        )
+
+    required_runtime = {
+        str(symbol) for symbol in free_symbols
+        if str(symbol) in runtime_symbols
+    }
+    missing_runtime = required_runtime - runtime_args.keys()
+    if missing_runtime:
+        raise ValueError(
+            "missing runtime argument bindings: "
+            + ", ".join(sorted(missing_runtime))
+        )
+
+    runtime_substitutions: dict[sympy.Symbol, sympy.Expr] = {}
+    for name in required_runtime:
+        value = runtime_args[name]
+        if isinstance(value, bool):
+            runtime_substitutions[sympy.Symbol(name)] = sympy.Integer(int(value))
+        elif isinstance(value, int):
+            runtime_substitutions[sympy.Symbol(name)] = sympy.Integer(value)
+        elif isinstance(value, float) and math.isfinite(value):
+            runtime_substitutions[sympy.Symbol(name)] = sympy.Float(value)
+        else:
+            raise ValueError(
+                f"runtime argument {name} must be a finite numeric value"
+            )
+
+    configured_weights = config.get("parameters", {})
     default_weight = float(config.get("defaults", {}).get("ops_per_count", 1.0))
-    work: dict[str, float] = {}
-    for pipeline, expr in exprs.items():
-        missing = expr.free_symbols - substitutions.keys()
-        local_subs = substitutions | {symbol: default_weight for symbol in missing}
-        work[pipeline] = float(expr.evalf(subs=local_subs))
-    return work
+    weight_substitutions = {
+        sympy.Symbol(name): float(
+            configured_weights.get(name, {}).get("ops_per_count", default_weight)
+        )
+        for name in weight_symbols
+    }
+    substitutions = weight_substitutions | runtime_substitutions
+    return {
+        pipeline: float(expr.evalf(subs=substitutions))
+        for pipeline, expr in exprs.items()
+    }
 
 
 def per_sm_throughput_rates(

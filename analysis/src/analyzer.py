@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -15,7 +16,7 @@ from .cost_model import (
     predict_ms,
 )
 from .cost_pass import run_cost_pass
-from .parse import block_metadata, cost_equations
+from .parse import parse_cost_analysis
 from .results import AnalysisSkip, CostResult
 from .scheduler import schedule_work
 
@@ -73,12 +74,28 @@ def analyze(
                 func_name,
                 PASS_TIMEOUT_S,
             )
-            exprs = pipeline_exprs(cost_equations(cost_mlir))
-            metadata = block_metadata(cost_mlir)
+            parsed_cost = parse_cost_analysis(cost_mlir)
+            exprs = pipeline_exprs(parsed_cost.equations)
+            scalar_args = record.get("scalar_args", {})
+            if not isinstance(scalar_args, dict) or any(
+                not isinstance(name, str)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                for name, value in scalar_args.items()
+            ):
+                raise ValueError(
+                    "scalar_args must map string keys to finite numeric values"
+                )
             scheduled_work, schedule = schedule_work(
-                eval_work(exprs, config),
+                eval_work(
+                    exprs,
+                    config,
+                    scalar_args,
+                    weight_symbols=parsed_cost.weight_symbols,
+                    runtime_symbols=parsed_cost.runtime_symbols,
+                ),
                 program_count=programs,
-                num_ctas=metadata.num_ctas,
+                num_ctas=parsed_cost.metadata.num_ctas,
                 num_sms=num_sms,
             )
             predicted, bottleneck, pipeline_ms = predict_ms(
@@ -104,6 +121,7 @@ def analyze(
                     str(key): str(value)
                     for key, value in record.get("kwargs", {}).items()
                 },
+                scalar_args=scalar_args,
                 grid_size=grid_size,
                 schedule=schedule,
             )

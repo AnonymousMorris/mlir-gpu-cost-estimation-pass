@@ -64,10 +64,12 @@ Value CostIRBuilder::constantCost(double value) {
                                          llvm::APFloat(value));
 }
 
-Value CostIRBuilder::addArgument(llvm::StringRef name, Type type) {
+Value CostIRBuilder::addArgument(llvm::StringRef name, Type type,
+                                 llvm::StringRef kind) {
     auto argumentIt = arguments.find(name);
     if (argumentIt != arguments.end()) {
         assert(argumentIt->second.getType() == type && "argument type mismatch");
+        assert(argumentKinds.lookup(name) == kind && "argument kind mismatch");
         return argumentIt->second;
     }
 
@@ -89,16 +91,23 @@ Value CostIRBuilder::addArgument(llvm::StringRef name, Type type) {
         argAttrs.push_back(builder.getDictionaryAttr({}));
     }
     argAttrs[cast<BlockArgument>(argument).getArgNumber()] =
-        builder.getDictionaryAttr(
-            {builder.getNamedAttr("cost.name", builder.getStringAttr(name))});
+        builder.getDictionaryAttr({
+            builder.getNamedAttr("cost.kind", builder.getStringAttr(kind)),
+            builder.getNamedAttr("cost.name", builder.getStringAttr(name)),
+        });
     costFunc.setAllArgAttrs(argAttrs);
 
     arguments.try_emplace(name, argument);
+    argumentKinds.try_emplace(name, kind);
     return argument;
 }
 
+Value CostIRBuilder::addRuntimeArgument(llvm::StringRef name, Type type) {
+    return addArgument(name, type, "runtime");
+}
+
 Value CostIRBuilder::addCostArgument(llvm::StringRef name) {
-    return addArgument(name, costType);
+    return addArgument(name, costType, "weight");
 }
 
 Value CostIRBuilder::add(Value lhs, Value rhs) {

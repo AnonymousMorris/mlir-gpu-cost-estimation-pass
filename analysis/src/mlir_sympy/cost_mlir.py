@@ -7,6 +7,7 @@ from mlir.dialects import func
 
 
 COST_ARGUMENT_NAME_ATTR = "cost.name"
+COST_ARGUMENT_KIND_ATTR = "cost.kind"
 
 
 @dataclass(frozen=True)
@@ -15,6 +16,7 @@ class CostFunction:
     module: ir.Module
     operation: func.FuncOp
     argument_names: list[str]
+    argument_kinds: list[str | None]
     result_names: list[str]
 
 
@@ -31,6 +33,7 @@ def parse_cost_function(text: str) -> CostFunction:
         module=module,
         operation=operation,
         argument_names=argument_names(operation),
+        argument_kinds=argument_kinds(operation),
         result_names=result_names(operation),
     )
 
@@ -44,6 +47,18 @@ def argument_names(operation: func.FuncOp) -> list[str]:
     for index, _ in enumerate(operation.arguments):
         names.append(operation.arg_attrs[index][COST_ARGUMENT_NAME_ATTR].value)
     return names
+
+
+def argument_kinds(operation: func.FuncOp) -> list[str | None]:
+    kinds: list[str | None] = []
+    for index, _ in enumerate(operation.arguments):
+        try:
+            kinds.append(
+                operation.arg_attrs[index][COST_ARGUMENT_KIND_ATTR].value
+            )
+        except KeyError:
+            kinds.append(None)
+    return kinds
 
 
 def result_names(operation: func.FuncOp) -> list[str]:

@@ -19,6 +19,12 @@ func.func @__cost_expr(...) -> (
 )
 ```
 
+Symbolic function arguments are tagged by role. Operation-cost weights use
+`cost.kind = "weight"`, while kernel values used by symbolic control flow use
+`cost.kind = "runtime"`. The analyzer substitutes runtime symbols from the
+benchmark record and applies the configured default only to weight symbols.
+Missing runtime bindings are rejected instead of being evaluated as cost 1.
+
 Each result is an independent symbolic equation:
 
 - `fp32`: FP32 arithmetic, integer arithmetic, address generation, and modeled
@@ -86,6 +92,10 @@ To analyze the checked-in local data with the default output directory, run:
 ```bash
 ./run_analysis.sh
 ```
+
+Benchmark records containing symbolic runtime-dependent loops must include the
+named `scalar_args` metadata produced by the current `triton_gen/main.py`.
+Regenerate older benchmark data that predates this field.
 
 The analyzer uses `gpu_spec.json`, `cost_analysis_config.json`, and
 `../build/libMyPass.so`, and finds `triton-opt` on `PATH`.
@@ -157,6 +167,7 @@ The default JSON output is `output/cost_predictions.json`. Each successful
 prediction contains:
 
 - `category_expressions`: the six simplified symbolic equations
+- `scalar_args`: named numeric launch arguments used for symbolic evaluation
 - `scheduled_work`: evaluated busiest-SM work for each category
 - `schedule`: scheduler model, launch inputs, block count, and wave count
 - `pipeline_ms`: estimated time for each category

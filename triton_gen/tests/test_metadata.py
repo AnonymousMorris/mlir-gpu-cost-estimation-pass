@@ -31,10 +31,26 @@ class MetadataTests(unittest.TestCase):
             },
         )
 
+    def test_records_named_numeric_kernel_arguments(self):
+        class Kernel:
+            arg_names = ("input_ptr", "M", "K", "BLOCK_SIZE")
+
+        scalar_args = main.record_scalar_args(
+            Kernel(),
+            (object(), 128, 256),
+            {"BLOCK_SIZE": 64, "num_warps": 4},
+        )
+
+        self.assertEqual(
+            scalar_args,
+            {"M": 128, "K": 256, "BLOCK_SIZE": 64},
+        )
+
     def test_successful_record_schema_includes_launch_metadata(self):
         record = main.KernelRunRecord(
             args=["4096"],
             kwargs={"BLOCK_SIZE": "1024"},
+            scalar_args={"n_elements": 4096, "BLOCK_SIZE": 1024},
             grid_size=[4],
             block_size={"BLOCK_SIZE": "1024"},
             compiled_name="add_kernel",
@@ -48,6 +64,10 @@ class MetadataTests(unittest.TestCase):
         payload = asdict(record)
         self.assertEqual(payload["grid_size"], [4])
         self.assertEqual(payload["block_size"], {"BLOCK_SIZE": "1024"})
+        self.assertEqual(
+            payload["scalar_args"],
+            {"n_elements": 4096, "BLOCK_SIZE": 1024},
+        )
         self.assertEqual(payload["status"], "ok")
         self.assertIsNone(payload["error"])
 

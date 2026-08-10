@@ -33,7 +33,7 @@ public:
     CostVector zeroVector();
     CostVector costVector(CostType type, Value cost);
     Value constantCost(double value);
-    Value addArgument(llvm::StringRef name, Type type);
+    Value addRuntimeArgument(llvm::StringRef name, Type type);
     Value addCostArgument(llvm::StringRef name);
     Value add(Value lhs, Value rhs);
     CostVector add(CostVector lhsVector, CostVector rhsVector);
@@ -55,6 +55,8 @@ public:
     Location getLoc() const;
 
 private:
+    Value addArgument(llvm::StringRef name, Type type, llvm::StringRef kind);
+
     OpBuilder builder;
     Location loc;
     Type costType;
@@ -64,4 +66,5 @@ private:
     func::FuncOp costFunc;
     Block *entry = nullptr;
     llvm::StringMap<Value> arguments;
+    llvm::StringMap<llvm::StringRef> argumentKinds;
 };

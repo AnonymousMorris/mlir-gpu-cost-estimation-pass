@@ -22,6 +22,7 @@ class CostResult:
     category_expressions: dict[str, str]
     args: list[str]
     kwargs: dict[str, str]
+    scalar_args: dict[str, int | float]
     grid_size: list[int]
     schedule: Schedule
 

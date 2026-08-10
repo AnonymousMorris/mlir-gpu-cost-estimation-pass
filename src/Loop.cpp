@@ -35,8 +35,8 @@ FailureOr<Value> clone_bound_expr(CostIRBuilder &costBuilder, Value value,
     }
 
     if (auto argument = dyn_cast<BlockArgument>(value)) {
-        Value mapped = costBuilder.addArgument(source_argument_name(argument),
-                                              argument.getType());
+        Value mapped = costBuilder.addRuntimeArgument(
+            source_argument_name(argument), argument.getType());
         mapping.map(value, mapped);
         return mapped;
     }

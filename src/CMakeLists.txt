@@ -72,6 +72,20 @@ if(BUILD_TESTING)
         )
 
         add_test(
+            NAME symbolic-cost-argument-roles
+            COMMAND
+                ${TRITON_OPT_EXECUTABLE}
+                --load-pass-plugin=$<TARGET_FILE:MyPass>
+                "--pass-pipeline=builtin.module(my-cost-analysis{func-name=division_loop_count})"
+                -o ${CMAKE_CURRENT_BINARY_DIR}/symbolic_cost_argument_roles.out.mlir
+                ${CMAKE_CURRENT_SOURCE_DIR}/../tests/triton/division_loop_count.ttgir
+        )
+        set_tests_properties(symbolic-cost-argument-roles PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "cost.kind = \"weight\".*cost.kind = \"runtime\""
+        )
+
+        add_test(
             NAME shared-memory-l1-cost-category
             COMMAND
                 ${TRITON_OPT_EXECUTABLE}

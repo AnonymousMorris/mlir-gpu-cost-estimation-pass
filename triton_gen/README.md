@@ -50,7 +50,9 @@ Each successful timing record stores:
 
 - `grid_size`: concrete host launch-grid dimensions
 - `block_size`: logical `BLOCK*` compile-time parameters
-- `args` and `kwargs`: non-tensor launch arguments
+- `args` and `kwargs`: display-friendly non-tensor launch arguments
+- `scalar_args`: named numeric kernel arguments, preserving integer and float
+  values for symbolic cost analysis
 - `time_ms`: median runtime, plus p20/p80 timings and a spread ratio
 - `status`: `ok` for a completed benchmark
 
