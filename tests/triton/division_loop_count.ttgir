@@ -1,0 +1,14 @@
+module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 1 : i32, ttg.target = "cuda:80", "ttg.threads-per-warp" = 32 : i32} {
+  tt.func public @division_loop_count(%K: i32) {
+    %c0_i32 = arith.constant 0 : i32
+    %c1_i32 = arith.constant 1 : i32
+    %c63_i32 = arith.constant 63 : i32
+    %c64_i32 = arith.constant 64 : i32
+    %numerator = arith.addi %K, %c63_i32 : i32
+    %upper = arith.divsi %numerator, %c64_i32 : i32
+    scf.for %i = %c0_i32 to %upper step %c1_i32 : i32 {
+      %unused = arith.addi %i, %c1_i32 : i32
+    }
+    tt.return
+  }
+}

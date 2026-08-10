@@ -1,5 +1,12 @@
 cmake_minimum_required(VERSION 3.20)
+
+if(POLICY CMP0219)
+    cmake_policy(SET CMP0219 NEW)
+endif()
+
 project(Skeleton LANGUAGES CXX C)
+
+include(CTest)
 
 # LLVM uses C++17.
 set(CMAKE_CXX_STANDARD 17)
@@ -46,3 +53,22 @@ target_include_directories(MyPass PRIVATE
     ${TRITON_SOURCE_DIR}/include
     ${TRITON_BUILD_DIR}/include
 )
+
+if(BUILD_TESTING)
+    find_program(TRITON_OPT_EXECUTABLE NAMES triton-opt)
+    if(TRITON_OPT_EXECUTABLE)
+        add_test(
+            NAME loop-count-division-bound
+            COMMAND
+                ${TRITON_OPT_EXECUTABLE}
+                --load-pass-plugin=$<TARGET_FILE:MyPass>
+                "--pass-pipeline=builtin.module(my-cost-analysis{func-name=division_loop_count})"
+                -o ${CMAKE_CURRENT_BINARY_DIR}/division_loop_count.out.mlir
+                ${CMAKE_CURRENT_SOURCE_DIR}/../tests/triton/division_loop_count.ttgir
+        )
+        set_tests_properties(loop-count-division-bound PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "arith.divsi %[0-9]+, %c64_i32 : i32"
+        )
+    endif()
+endif()

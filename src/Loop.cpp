@@ -16,7 +16,9 @@ namespace {
 
 bool can_clone_bound_op(Operation *op) {
     return isa<arith::ConstantOp, arith::AddIOp, arith::SubIOp, arith::MulIOp,
-               arith::CeilDivUIOp, arith::IndexCastOp, arith::IndexCastUIOp>(op);
+               arith::DivSIOp, arith::DivUIOp, arith::CeilDivSIOp,
+               arith::CeilDivUIOp, arith::IndexCastOp,
+               arith::IndexCastUIOp>(op);
 }
 
 std::string source_argument_name(BlockArgument argument) {
