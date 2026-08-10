@@ -3,22 +3,18 @@ from __future__ import annotations
 import pytest
 import sympy
 
-from analyze_costs import (
-    CostResult,
+from src.cost_model import (
     PIPELINES,
-    block_metadata,
-    extract_cost_function,
     grid_program_count,
-    pass_pipeline,
     per_sm_throughput_rates,
     pipeline_exprs,
-    plot,
-    plottable_rows,
-    summarize,
 )
-from mlir_sympy import build_equations, parse_cost_function
-from parse import cost_equations, formatted_cost_equations
-from scheduler import schedule_work
+from src.cost_pass import extract_cost_function, pass_pipeline
+from src.plotting import kernel_color_map, plot, plottable_rows
+from src.results import CostResult, summarize
+from src.mlir_sympy import build_equations, parse_cost_function
+from src.parse import block_metadata, cost_equations
+from src.scheduler import schedule_work
 
 
 CATEGORY_COST_MLIR = """func.func @__cost_expr(
@@ -135,7 +131,7 @@ def test_parser_handles_signed_and_unsigned_integer_division():
 
 
 def test_pipeline_expressions_use_result_categories_without_reclassification():
-    expressions = pipeline_exprs(CATEGORY_COST_MLIR)
+    expressions = pipeline_exprs(cost_equations(CATEGORY_COST_MLIR))
 
     assert tuple(expressions) == PIPELINES
     assert expressions["memory"] == sympy.Symbol("triton.load_cost")
@@ -158,18 +154,6 @@ def test_extracts_function_with_execution_metadata_attributes():
     assert extracted == BLOCK_COST_MLIR
 
 
-def test_formats_each_category_as_a_separate_equation():
-    output = formatted_cost_equations(CATEGORY_COST_MLIR)
-
-    assert output.splitlines() == [
-        "fp32: 2.0*arith.addf32",
-        "fp64: 0.0",
-        "sfu: math.exp",
-        "tensor: triton.dot_cost",
-        "memory: triton.load_cost",
-    ]
-
-
 def test_pipeline_expressions_require_the_complete_category_contract():
     incomplete = """func.func @__cost_expr() -> (f64 {cost.name = "fp32"}) {
       %c0 = arith.constant 0.000000e+00 : f64
@@ -177,7 +161,7 @@ def test_pipeline_expressions_require_the_complete_category_contract():
     }"""
 
     with pytest.raises(ValueError, match="missing categories"):
-        pipeline_exprs(incomplete)
+        pipeline_exprs(cost_equations(incomplete))
 
 
 def test_reads_per_block_metadata():
@@ -244,6 +228,15 @@ def test_plots_exclude_persistent_matmul_rows():
     persistent = result("matmul_kernel_persistent")
 
     assert plottable_rows([regular, persistent]) == [regular]
+
+
+def test_assigns_stable_distinct_colors_to_kernels():
+    rows = [result("softmax_kernel"), result("add_kernel")]
+
+    colors = kernel_color_map(rows)
+
+    assert list(colors) == ["add_kernel", "softmax_kernel"]
+    assert len(set(colors.values())) == 2
 
 
 def test_plot_creates_nested_plot_directory(tmp_path):

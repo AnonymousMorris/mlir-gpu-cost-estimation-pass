@@ -4,7 +4,7 @@ from mlir import ir
 from mlir.dialects import arith, func
 import sympy
 
-from mlir_sympy.cost_mlir import CostFunction
+from .cost_mlir import CostFunction
 
 
 def build_equations(cost_function: CostFunction) -> dict[str, sympy.Expr]:
@@ -70,13 +70,6 @@ def build_equations(cost_function: CostFunction) -> dict[str, sympy.Expr]:
         raise ValueError(f"unsupported op: {op.operation.name}")
 
     raise ValueError("@__cost_expr does not return values")
-
-
-def build_equation(cost_function: CostFunction) -> sympy.Expr:
-    equations = build_equations(cost_function)
-    if len(equations) != 1:
-        raise ValueError("@__cost_expr returns multiple cost categories")
-    return next(iter(equations.values()))
 
 
 def entry_block(operation: func.FuncOp) -> ir.Block:

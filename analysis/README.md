@@ -52,41 +52,37 @@ cmake --build build
 To simplify the emitted MLIR into one equation per category:
 
 ```bash
-./run.sh 2>&1 | uv run --project analysis python analysis/main.py -
+./run.sh 2>&1 | uv run --project analysis python -m analysis.src.parse -
 ```
 
 The Python API returns the same information as a dictionary:
 
 ```python
-from parse import cost_equations
+from src.parse import cost_equations
 
 equations = cost_equations(cost_mlir)
 memory_expression = equations["memory"]
 ```
 
-`cost_equation()` remains available for legacy cost functions that return one
-scalar result.
-
 ## Run the dataset analysis
 
-From `analysis/`:
+From `analysis/`, pass the benchmark JSON and its TTGIR directory:
 
 ```bash
-uv run analyze_costs.py \
-  --results ../triton_gen/results/result.json \
-  --ttgir-dir ../triton_gen/results/ttgir \
-  --plugin ../build/libMyPass.so
+uv run main.py ../triton_gen/results/result.json ../triton_gen/results/ttgir
 ```
 
-Useful options include:
+Use `--output DIR` to place the prediction JSON and both plots in one output
+directory. It defaults to `analysis/output/`.
 
-- `--limit N`: analyze only the first `N` benchmark records
-- `--timeout SECONDS`: set the per-kernel `triton-opt` timeout
-- `--gpu-spec PATH`: select GPU throughput and bandwidth data
-- `--config PATH`: select operation weights and model settings
-- `--output PATH`: select the prediction JSON destination
-- `--scatter PATH`: select the measured-versus-predicted plot destination
-- `--pipeline-plot PATH`: select the bottleneck-count plot destination
+To analyze the checked-in local data with the default output directory, run:
+
+```bash
+./run_analysis.sh
+```
+
+The analyzer uses `gpu_spec.json`, `cost_analysis_config.json`, and
+`../build/libMyPass.so`, and finds `triton-opt` on `PATH`.
 
 ## Prediction model
 
@@ -132,12 +128,23 @@ runtime is:
 launch overhead + max(fp32, fp64, sfu, tensor, memory category times)
 ```
 
-Hardware rates and utilization factors come from `gpu_spec.json`.
+Hardware rates and utilization factors come from `gpu_spec.json`. The Python
+implementation is split by responsibility:
+
+- `main.py`: CLI and output coordination
+- `src/analyzer.py`: dataset orchestration
+- `src/cost_pass.py`: `triton-opt` execution and emitted-function extraction
+- `src/cost_model.py`: pipeline evaluation and throughput calculations
+- `src/results.py`: result types, summaries, and JSON output
+- `src/plotting.py`: prediction plots
+
+Root `main.py` keeps the command-line interface separate from the reusable
+implementation under `src/`.
 
 ## Outputs
 
-The default JSON output is `cost_predictions.json`. Each successful prediction
-contains:
+The default JSON output is `output/cost_predictions.json`. Each successful
+prediction contains:
 
 - `category_expressions`: the five simplified symbolic equations
 - `scheduled_work`: evaluated busiest-SM work for each category
@@ -146,22 +153,23 @@ contains:
 - `bottleneck`: the category with the largest estimated time
 - `predicted_ms` and `time_ms`: predicted and measured runtime
 
-Generated figures are stored in `plots/` by default:
+Generated figures are stored in `output/` by default:
 
-- `plots/cost_prediction_scatter.png`: measured runtime on the x-axis and
-  predicted runtime on the y-axis, colored by predicted bottleneck
-- `plots/cost_pipeline_counts.png`: number of kernels assigned to each
-  bottleneck category
+- `output/cost_prediction_scatter.png`: measured runtime on the x-axis and
+  predicted runtime on the y-axis, colored by kernel with marker shapes for
+  predicted bottlenecks
+- `output/cost_pipeline_counts.png`: number of configurations assigned to each
+  bottleneck category, stacked and colored by kernel
 
-Both axes of the scatter plot use logarithmic scales. Its diagonal line marks
-perfect agreement between measured and predicted runtime. Persistent matmul
-kernels are excluded from plots until the cost analysis models their
-runtime-dependent loop iterations.
+Both axes of the scatter plot use logarithmic scales. Its solid diagonal marks
+perfect agreement, and the dashed diagonals show the 2x error boundary.
+Persistent matmul kernels are excluded from plots until the cost analysis
+models their runtime-dependent loop iterations.
 
 ## Tests
 
-Run the focused parser, category, and plotting tests from `analysis/`:
+Run the test suite from `analysis/`:
 
 ```bash
-uv run pytest -q tests/test_validation.py tests/test_category_costs.py tests/test_scheduler.py
+uv run pytest -q
 ```

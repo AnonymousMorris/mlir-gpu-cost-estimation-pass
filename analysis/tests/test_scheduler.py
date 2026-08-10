@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from scheduler import schedule_work
+from src.scheduler import schedule_work
 
 
 CATEGORIES = {
