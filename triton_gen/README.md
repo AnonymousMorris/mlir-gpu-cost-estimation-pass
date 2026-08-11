@@ -59,14 +59,15 @@ Each successful timing record stores:
 Large spread ratios are a sign that the kernel is too short or noisy for
 reliable fitting.
 
-The laptop-compatible sweep emits 679 benchmark records on standard CUDA
-targets, matching the original RTX 3060 dataset. It covers 16 vector additions,
-98 softmaxes, 496 matmuls, 2 dropouts, 30 layer norms, 20 attention cases,
-1 libdevice asin, 8 grouped GEMMs, and 8 persistent matmuls. Targets that
-support block scaling emit 8 additional records. On an RTX 3060, 155 oversized
-matmul configurations are expected to be recorded as `skipped` because their
-shared-memory requirement exceeds the hardware limit. The remaining 524 cases
-produce timings and TTGIR files.
+The laptop-compatible sweep emits 691 benchmark records on standard CUDA
+targets. It covers 16 vector additions, 98 softmaxes, 496 matmuls, 3 FP32 FMA
+stress cases, 3 FP64 FMA stress cases, 3 SFU exp2 stress cases, 3 integer-hash
+stress cases, 2 dropouts, 30 layer norms, 20 attention cases, 1 libdevice asin,
+8 grouped GEMMs, and 8 persistent matmuls. Targets that support block scaling
+emit 8 additional records. On an RTX 3060, 155 oversized matmul configurations
+are expected to be recorded as `skipped` because their shared-memory
+requirement exceeds the hardware limit. The remaining 536 cases produce
+timings and TTGIR files.
 
 ## Adding Kernels
 
@@ -79,4 +80,5 @@ def iter_args(device):
     yield args, kwargs, grid
 ```
 
-Then import the module in `main.py` and add it to `KERNEL_MODULES`.
+Then import the module and add it to `KERNEL_MODULES` in
+`kernels/__init__.py`.

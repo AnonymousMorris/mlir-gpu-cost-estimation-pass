@@ -3,14 +3,19 @@ import inspect
 import unittest
 from unittest.mock import patch
 
+from kernels import KERNEL_MODULES
 from kernels import attention
 from kernels import block_scaled_matmul
 from kernels import dropout
+from kernels import fp32_fma
+from kernels import fp64_fma
 from kernels import grouped_gemm
+from kernels import integer_hash
 from kernels import layer_norm
 from kernels import libdevice_asin
 from kernels import matmul
 from kernels import persistent_matmul
+from kernels import sfu_exp2
 from kernels import softmax
 from kernels import vec_add
 
@@ -89,6 +94,22 @@ class SweepTests(unittest.TestCase):
                 for size in range(256, 4097, 128)
                 for block_m, block_n, block_k, group_m, num_warps, num_stages in matmul_configs
             ],
+            fp32_fma: [
+                {"size": size, "iterations": 256, "block_size": 256}
+                for size in (2**18, 2**20, 2**22)
+            ],
+            fp64_fma: [
+                {"size": size, "iterations": 32, "block_size": 256}
+                for size in (2**16, 2**18, 2**20)
+            ],
+            sfu_exp2: [
+                {"size": size, "iterations": 32, "block_size": 256}
+                for size in (2**18, 2**20, 2**22)
+            ],
+            integer_hash: [
+                {"size": size, "iterations": 64, "block_size": 256}
+                for size in (2**18, 2**20, 2**22)
+            ],
             dropout: [
                 {"size": 10, "p": 0.5, "seed": seed, "block_size": 1024}
                 for seed in (123, 512)
@@ -125,6 +146,10 @@ class SweepTests(unittest.TestCase):
             vec_add: 16,
             softmax: 98,
             matmul: 496,
+            fp32_fma: 3,
+            fp64_fma: 3,
+            sfu_exp2: 3,
+            integer_hash: 3,
             dropout: 2,
             layer_norm: 30,
             attention: 20,
@@ -139,7 +164,28 @@ class SweepTests(unittest.TestCase):
                 self.assertEqual(actual_cases, expected_cases)
                 self.assertEqual(len(actual_cases), expected_counts[module])
 
-        self.assertEqual(sum(expected_counts.values()), 679)
+        self.assertEqual(sum(expected_counts.values()), 691)
+
+    def test_registered_kernel_order(self):
+        self.assertEqual(
+            KERNEL_MODULES,
+            [
+                vec_add,
+                softmax,
+                matmul,
+                fp32_fma,
+                fp64_fma,
+                sfu_exp2,
+                integer_hash,
+                dropout,
+                layer_norm,
+                attention,
+                libdevice_asin,
+                grouped_gemm,
+                persistent_matmul,
+                block_scaled_matmul,
+            ],
+        )
 
     def test_block_scaled_targets_add_eight_cases(self):
         cases = collect_case_arguments(
