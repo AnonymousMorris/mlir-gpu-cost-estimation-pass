@@ -70,9 +70,9 @@ inline const CostConfig MemOpCost = {
 };
 
 inline const CostConfig NamedTensorOpCost = {
-    // Global/shared memory load instructions, plus address/predicate operands.
+    // Global-memory load payload, scaled by the result element width in bytes.
     {"tt.load", "triton.load_cost"},
-    // Global/shared memory store instructions, plus address/predicate operands.
+    // Global-memory store payload, scaled by the value element width in bytes.
     {"tt.store", "triton.store_cost"},
     // Matrix multiply-accumulate instructions, e.g. NVIDIA mma/wgmma.
     {"tt.dot", "triton.dot_cost"},
@@ -92,6 +92,6 @@ inline const CostConfig NamedTensorOpCost = {
     {"ttg.local_load", "triton_gpu.local_load_cost"},
     // Layout movement via register shuffles and/or shared-memory traffic.
     {"ttg.convert_layout", "triton_gpu.convert_layout_cost"},
-    // Asynchronous global-to-local copy; modeled as a global load-sized memory op.
+    // Asynchronous global-to-local copy, scaled by source payload bytes.
     {"ttg.async_copy_global_to_local", "triton.load_cost"},
 };

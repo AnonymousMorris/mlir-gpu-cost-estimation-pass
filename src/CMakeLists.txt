@@ -112,6 +112,19 @@ if(BUILD_TESTING)
                     $<TARGET_FILE:MyPass>
                     ${CMAKE_CURRENT_SOURCE_DIR}/../tests/triton/tiled_matmul.ttgir
             )
+
+            add_test(
+                NAME global-memory-element-widths
+                COMMAND
+                    ${UV_EXECUTABLE}
+                    run
+                    --project ${CMAKE_CURRENT_SOURCE_DIR}/../analysis
+                    python
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../analysis/tests/verify_memory_widths_pass.py
+                    ${TRITON_OPT_EXECUTABLE}
+                    $<TARGET_FILE:MyPass>
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/triton/memory_element_widths.ttgir
+            )
         endif()
     endif()
 endif()

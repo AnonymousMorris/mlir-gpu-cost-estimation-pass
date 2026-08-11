@@ -1,0 +1,17 @@
+module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 1 : i32, ttg.target = "cuda:80", "ttg.threads-per-warp" = 32 : i32} {
+  tt.func public @memory_element_widths(
+      %p8: !tt.ptr<i8>,
+      %p16: !tt.ptr<f16>,
+      %p32: !tt.ptr<f32>,
+      %p64: !tt.ptr<f64>) {
+    %v8 = tt.load %p8 : !tt.ptr<i8>
+    %v16 = tt.load %p16 : !tt.ptr<f16>
+    %v32 = tt.load %p32 : !tt.ptr<f32>
+    %v64 = tt.load %p64 : !tt.ptr<f64>
+    tt.store %p8, %v8 : !tt.ptr<i8>
+    tt.store %p16, %v16 : !tt.ptr<f16>
+    tt.store %p32, %v32 : !tt.ptr<f32>
+    tt.store %p64, %v64 : !tt.ptr<f64>
+    tt.return
+  }
+}

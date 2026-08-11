@@ -34,11 +34,17 @@ Each result is an independent symbolic equation:
   elementwise functions such as `__nv_asinf`
 - `tensor`: tensor-core dot operations
 - `l1`: modeled on-chip shared/L1 reads and writes
-- `memory`: global-memory loads and stores
+- `memory`: logical global-memory load and store payload bytes
 
-An asynchronous global-to-local copy contributes its payload bytes to both
-`memory` and `l1`. Since category times are combined with `max`, this models the
-same transfer at both levels without adding the payload latency twice.
+Global-memory payloads are scaled by their element types: for example, FP16
+values contribute two bytes per element and FP32 values contribute four. This
+is logical payload accounting; masks, cache lines, alignment, coalescing, and
+partially used memory transactions are not modeled yet.
+
+An asynchronous global-to-local copy contributes its type-scaled payload bytes
+to both `memory` and `l1`. Since category times are combined with `max`, this
+models the same transfer at both levels without adding the payload latency
+twice.
 
 The pass no longer collapses these categories into a scalar `Max` before
 returning them. Control-flow alternatives can still produce `Max` expressions

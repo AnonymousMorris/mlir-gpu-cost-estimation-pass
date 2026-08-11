@@ -7,6 +7,9 @@
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/TritonGPU/IR/Dialect.h"
 
+#include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/MathExtras.h"
+
 #include <algorithm>
 #include <cassert>
 #include <optional>
@@ -38,6 +41,24 @@ int64_t elements_per_thread(Operation &op) {
     }
 
     return maxElemsPerThread;
+}
+
+int64_t type_byte_width(Type type) {
+    if (!type.isIntOrFloat()) {
+        llvm::report_fatal_error("cannot get byte width of non-scalar type");
+    }
+    return llvm::divideCeil(type.getIntOrFloatBitWidth(), 8u);
+}
+
+int64_t vector_byte_width(Value value) {
+    Type elementType = value.getType();
+    if (auto shapedType = dyn_cast<ShapedType>(elementType)) {
+        elementType = shapedType.getElementType();
+    }
+    if (auto pointerType = dyn_cast<triton::PointerType>(elementType)) {
+        elementType = pointerType.getPointeeType();
+    }
+    return elements_per_thread(value) * type_byte_width(elementType);
 }
 
 namespace {
@@ -91,13 +112,13 @@ int64_t tensor_k_dim(Value value) {
 Value analyze_triton_load(CostIRBuilder &costBuilder, triton::LoadOp loadOp,
                           const GpuSpec &) {
     return scale_cost(costBuilder, tensor_cost(*loadOp.getOperation()),
-                      elements_per_thread(loadOp.getResult()));
+                      vector_byte_width(loadOp.getResult()));
 }
 
 Value analyze_triton_store(CostIRBuilder &costBuilder, triton::StoreOp storeOp,
                            const GpuSpec &) {
     return scale_cost(costBuilder, tensor_cost(*storeOp.getOperation()),
-                      elements_per_thread(storeOp.getValue()));
+                      vector_byte_width(storeOp.getValue()));
 }
 
 Value analyze_triton_dot(CostIRBuilder &costBuilder, triton::DotOp dotOp,
@@ -179,9 +200,12 @@ Value analyze_ttg_convert_layout(CostIRBuilder &costBuilder,
                       elemsPerThread);
 }
 
-CostVector analyze_ttg_async_copy(CostIRBuilder &costBuilder, Operation &op) {
-    Value copyCost = scale_cost(costBuilder, tensor_cost(op),
-                                elements_per_thread(op));
+CostVector analyze_ttg_async_copy(
+    CostIRBuilder &costBuilder,
+    triton::gpu::AsyncCopyGlobalToLocalOp copyOp) {
+    Value copyCost = scale_cost(
+        costBuilder, tensor_cost(*copyOp.getOperation()),
+        vector_byte_width(copyOp.getSrc()));
     CostVector cost = costBuilder.zeroVector();
     cost[static_cast<size_t>(CostType::L1)] = copyCost;
     cost[static_cast<size_t>(CostType::MEMORY)] = copyCost;
@@ -262,8 +286,9 @@ std::optional<CostVector> analyze_triton_tensor_op(CostIRBuilder &costBuilder,
             analyze_ttg_convert_layout(costBuilder, convertLayoutOp, gpu));
     }
 
-    if (op.getName().getStringRef() == "ttg.async_copy_global_to_local") {
-        return analyze_ttg_async_copy(costBuilder, op);
+    if (auto copyOp =
+            dyn_cast<triton::gpu::AsyncCopyGlobalToLocalOp>(op)) {
+        return analyze_ttg_async_copy(costBuilder, copyOp);
     }
 
     auto costIt = NamedTensorOpCost.find(op.getName().getStringRef());

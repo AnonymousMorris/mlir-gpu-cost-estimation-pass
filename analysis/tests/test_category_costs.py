@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 import sympy
-
 from src.cost_model import (
     PIPELINES,
     eval_work,
@@ -12,12 +14,11 @@ from src.cost_model import (
     predict_ms,
 )
 from src.cost_pass import extract_cost_function, pass_pipeline
-from src.plotting import kernel_color_map, plot, plottable_rows
-from src.results import CostResult, summarize
 from src.mlir_sympy import build_equations, parse_cost_function
 from src.parse import block_metadata, cost_equations
+from src.plotting import kernel_color_map, plot, plottable_rows
+from src.results import CostResult, summarize
 from src.scheduler import schedule_work
-
 
 CATEGORY_COST_MLIR = """func.func @__cost_expr(
   %arith.addf32: f64 {cost.name = "arith.addf32"},
@@ -81,6 +82,9 @@ DIVISION_COST_MLIR = """func.func @__cost_expr() -> (
   %total = arith.addf %div, %ceil : f64
   return %total, %c0, %c0, %c0, %c0, %c0 : f64, f64, f64, f64, f64, f64
 }"""
+
+
+ANALYSIS_ROOT = Path(__file__).resolve().parents[1]
 
 
 _, SCHEDULE = schedule_work(
@@ -242,6 +246,13 @@ def test_applies_default_only_to_declared_weight_symbols():
     )
 
     assert work["fp32"] == 8.0
+
+
+def test_memory_parameters_do_not_rescale_emitted_byte_counts():
+    config = json.loads((ANALYSIS_ROOT / "cost_analysis_config.json").read_text())
+
+    assert config["parameters"]["triton.load_cost"]["ops_per_count"] == 1.0
+    assert config["parameters"]["triton.store_cost"]["ops_per_count"] == 1.0
 
 
 def test_builds_per_sm_throughput_rates():

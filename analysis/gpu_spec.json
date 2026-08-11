@@ -62,8 +62,8 @@
     "index.castu": "int32"
   },
   "memory_bytes_per_count": {
-    "triton.load_cost": 4,
-    "triton.store_cost": 4
+    "triton.load_cost": 1,
+    "triton.store_cost": 1
   },
   "l1_bytes_per_count": {
     "triton_gpu.local_alloc_cost": 4,
@@ -72,6 +72,7 @@
   "notes": [
     "Rates are intentionally simple peak-style defaults for fast experiments.",
     "FP32 uses FMA-equivalent 128 ops/SM/cycle. Tensor dot defaults to TF32 path.",
+    "Global-memory load and store counts are logical payload bytes derived from their element types.",
     "L1 models the unified L1/shared-memory path as 32 banks times 4 bytes per cycle per SM.",
     "Utilization and launch_overhead_ms are calibration knobs, not hardware facts."
   ]
