@@ -86,9 +86,10 @@ inline const CostConfig NamedTensorOpCost = {
     {"tt.splat", "triton.splat_cost"},
     // Per-lane index materialization, usually constants/register arithmetic.
     {"tt.make_range", "triton.make_range_cost"},
-    // Shared/local memory allocation; usually no instruction, but consumes storage.
+    // Source-backed allocation stores type-scaled bytes to shared memory.
+    // Source-free allocation reserves storage but contributes no L1 traffic.
     {"ttg.local_alloc", "triton_gpu.local_alloc_cost"},
-    // Local/shared memory load or register extraction, depending on layout.
+    // Local/shared memory load, scaled by the result element width in bytes.
     {"ttg.local_load", "triton_gpu.local_load_cost"},
     // Layout movement via register shuffles and/or shared-memory traffic.
     {"ttg.convert_layout", "triton_gpu.convert_layout_cost"},

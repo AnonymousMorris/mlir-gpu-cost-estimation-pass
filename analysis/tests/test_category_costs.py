@@ -253,6 +253,8 @@ def test_memory_parameters_do_not_rescale_emitted_byte_counts():
 
     assert config["parameters"]["triton.load_cost"]["ops_per_count"] == 1.0
     assert config["parameters"]["triton.store_cost"]["ops_per_count"] == 1.0
+    assert config["parameters"]["triton_gpu.local_alloc_cost"]["ops_per_count"] == 1.0
+    assert config["parameters"]["triton_gpu.local_load_cost"]["ops_per_count"] == 1.0
 
 
 def test_builds_per_sm_throughput_rates():

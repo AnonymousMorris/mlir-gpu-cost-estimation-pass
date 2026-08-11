@@ -1,0 +1,23 @@
+#blocked = #ttg.blocked<{sizePerThread = [1, 1], threadsPerWarp = [1, 32], warpsPerCTA = [1, 1], order = [1, 0]}>
+#shared = #ttg.swizzled_shared<{vec = 1, perPhase = 1, maxPhase = 1, order = [1, 0]}>
+#smem = #ttg.shared_memory
+module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 1 : i32, ttg.target = "cuda:80", "ttg.threads-per-warp" = 32 : i32} {
+  tt.func public @shared_f16(%ptr: !tt.ptr<f16>) {
+    %ptrs = tt.splat %ptr : !tt.ptr<f16> -> tensor<32x32x!tt.ptr<f16>, #blocked>
+    %value = tt.load %ptrs : tensor<32x32x!tt.ptr<f16>, #blocked>
+    %local = ttg.local_alloc %value : (tensor<32x32xf16, #blocked>) -> !ttg.memdesc<32x32xf16, #shared, #smem>
+    %loaded = ttg.local_load %local : !ttg.memdesc<32x32xf16, #shared, #smem> -> tensor<32x32xf16, #blocked>
+    tt.return
+  }
+  tt.func public @shared_f32(%ptr: !tt.ptr<f32>) {
+    %ptrs = tt.splat %ptr : !tt.ptr<f32> -> tensor<32x32x!tt.ptr<f32>, #blocked>
+    %value = tt.load %ptrs : tensor<32x32x!tt.ptr<f32>, #blocked>
+    %local = ttg.local_alloc %value : (tensor<32x32xf32, #blocked>) -> !ttg.memdesc<32x32xf32, #shared, #smem>
+    %loaded = ttg.local_load %local : !ttg.memdesc<32x32xf32, #shared, #smem> -> tensor<32x32xf32, #blocked>
+    tt.return
+  }
+  tt.func public @shared_alloc_only() {
+    %local = ttg.local_alloc : () -> !ttg.memdesc<32x32xf16, #shared, #smem, mutable>
+    tt.return
+  }
+}

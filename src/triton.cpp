@@ -173,20 +173,22 @@ Value analyze_triton_extern_elementwise(
 Value analyze_ttg_local_alloc(CostIRBuilder &costBuilder,
                               triton::gpu::LocalAllocOp localAllocOp,
                               const GpuSpec &) {
-    if (Value src = localAllocOp.getSrc()) {
-        return scale_cost(costBuilder,
-                          tensor_cost(*localAllocOp.getOperation()),
-                          elements_per_thread(src));
+    Value src = localAllocOp.getSrc();
+    if (!src) {
+        return costBuilder.zero();
     }
+
+    int64_t storeBytesPerThread = vector_byte_width(src);
     return scale_cost(costBuilder, tensor_cost(*localAllocOp.getOperation()),
-                      1);
+                      storeBytesPerThread);
 }
 
 Value analyze_ttg_local_load(CostIRBuilder &costBuilder,
                              triton::gpu::LocalLoadOp localLoadOp,
                              const GpuSpec &) {
+    int64_t loadBytesPerThread = vector_byte_width(localLoadOp.getResult());
     return scale_cost(costBuilder, tensor_cost(*localLoadOp.getOperation()),
-                      elements_per_thread(localLoadOp.getResult()));
+                      loadBytesPerThread);
 }
 
 Value analyze_ttg_convert_layout(CostIRBuilder &costBuilder,

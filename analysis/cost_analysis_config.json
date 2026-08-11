@@ -54,8 +54,8 @@
     "triton.make_range_cost": {"pipeline": "fp32", "ops_per_count": 1.0},
     "triton.splat_cost": {"pipeline": "fp32", "ops_per_count": 1.0},
     "triton_gpu.convert_layout_cost": {"pipeline": "fp32", "ops_per_count": 1.0},
-    "triton_gpu.local_alloc_cost": {"pipeline": "l1", "ops_per_count": 4.0},
-    "triton_gpu.local_load_cost": {"pipeline": "l1", "ops_per_count": 4.0},
+    "triton_gpu.local_alloc_cost": {"pipeline": "l1", "ops_per_count": 1.0},
+    "triton_gpu.local_load_cost": {"pipeline": "l1", "ops_per_count": 1.0},
     "sfu": {"pipeline": "sfu", "ops_per_count": 1.0}
   }
 }

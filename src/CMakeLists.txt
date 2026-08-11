@@ -125,6 +125,19 @@ if(BUILD_TESTING)
                     $<TARGET_FILE:MyPass>
                     ${CMAKE_CURRENT_SOURCE_DIR}/../tests/triton/memory_element_widths.ttgir
             )
+
+            add_test(
+                NAME shared-memory-element-widths
+                COMMAND
+                    ${UV_EXECUTABLE}
+                    run
+                    --project ${CMAKE_CURRENT_SOURCE_DIR}/../analysis
+                    python
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../analysis/tests/verify_l1_widths_pass.py
+                    ${TRITON_OPT_EXECUTABLE}
+                    $<TARGET_FILE:MyPass>
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/triton/shared_element_widths.ttgir
+            )
         endif()
     endif()
 endif()
