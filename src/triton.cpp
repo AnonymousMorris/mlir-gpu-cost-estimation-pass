@@ -1,5 +1,6 @@
 #include "CostConfig.h"
 #include "CostIRBuilder.h"
+#include "Reduction.h"
 #include "core.h"
 #include "gpuSpec.h"
 #include "triton.h"
@@ -220,6 +221,10 @@ CostVector analyze_ttg_async_copy(
 std::optional<CostVector> analyze_triton_tensor_op(CostIRBuilder &costBuilder,
                                                    Operation &op,
                                                    const GpuSpec &gpu) {
+    if (auto reduceOp = dyn_cast<triton::ReduceOp>(op)) {
+        return analyze_triton_reduce(costBuilder, reduceOp, gpu);
+    }
+
     if (auto loadOp = dyn_cast<triton::LoadOp>(op)) {
         return costBuilder.costVector(
             CostType::MEMORY, analyze_triton_load(costBuilder, loadOp, gpu));

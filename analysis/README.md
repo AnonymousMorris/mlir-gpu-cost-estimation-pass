@@ -46,6 +46,13 @@ to both `memory` and `l1`. Since category times are combined with `max`, this
 models the same transfer at both levels without adding the payload latency
 twice.
 
+A `tt.reduce` derives thread-local values, participating warp lanes, and
+remaining inter-warp values from the operand's linear layout. The current model
+counts thread-local combines and the target-independent warp shuffle tree. Warp
+communication is represented by the `triton.reduce_shuffle_cost` weight.
+Target-specific packing/redux instructions and inter-warp layout conversions
+are not modeled yet; the inter-warp stage is an explicit zero-cost stub.
+
 The pass no longer collapses these categories into a scalar `Max` before
 returning them. Control-flow alternatives can still produce `Max` expressions
 inside an individual category.

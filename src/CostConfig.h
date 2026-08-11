@@ -19,6 +19,7 @@ inline const CostConfig SimpleOpCosts = {
     {"scf.yield", 0.0},
     {"tt.get_num_programs", 0.0},
     {"tt.get_program_id", 0.0},
+    {"tt.reduce.return", 0.0},
     {"tt.return", 0.0},
     {"ttg.async_commit_group", 0.0},
     {"ttg.async_wait", 0.0},

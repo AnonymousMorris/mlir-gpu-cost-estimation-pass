@@ -43,6 +43,7 @@ add_llvm_library(
     pass.cpp
     core.cpp
     triton.cpp
+    Reduction.cpp
     CostIRBuilder.cpp
     Loop.cpp
 
@@ -137,6 +138,19 @@ if(BUILD_TESTING)
                     ${TRITON_OPT_EXECUTABLE}
                     $<TARGET_FILE:MyPass>
                     ${CMAKE_CURRENT_SOURCE_DIR}/../tests/triton/shared_element_widths.ttgir
+            )
+
+            add_test(
+                NAME triton-reduction-cost
+                COMMAND
+                    ${UV_EXECUTABLE}
+                    run
+                    --project ${CMAKE_CURRENT_SOURCE_DIR}/../analysis
+                    python
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../analysis/tests/verify_reduction_pass.py
+                    ${TRITON_OPT_EXECUTABLE}
+                    $<TARGET_FILE:MyPass>
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/triton/reduction.ttgir
             )
         endif()
     endif()
