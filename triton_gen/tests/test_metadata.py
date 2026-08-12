@@ -1,7 +1,7 @@
 import unittest
 from dataclasses import asdict
 
-import main
+from benchmarking import records
 
 
 class MetadataTests(unittest.TestCase):
@@ -9,16 +9,16 @@ class MetadataTests(unittest.TestCase):
         grid = lambda meta: (meta["N"] // meta["BLOCK_SIZE"], 2)
 
         self.assertEqual(
-            main.record_grid_size(grid, {"N": 4096, "BLOCK_SIZE": 1024}),
+            records.record_grid_size(grid, {"N": 4096, "BLOCK_SIZE": 1024}),
             [4, 2],
         )
 
     def test_normalizes_scalar_grid(self):
-        self.assertEqual(main.record_grid_size(8, {}), [8])
+        self.assertEqual(records.record_grid_size(8, {}), [8])
 
     def test_records_logical_block_parameters(self):
         self.assertEqual(
-            main.record_block_size(
+            records.record_block_size(
                 {
                     "BLOCK_SIZE_M": 64,
                     "BLOCK_SIZE_N": 128,
@@ -35,7 +35,7 @@ class MetadataTests(unittest.TestCase):
         class Kernel:
             arg_names = ("input_ptr", "M", "K", "BLOCK_SIZE")
 
-        scalar_args = main.record_scalar_args(
+        scalar_args = records.record_scalar_args(
             Kernel(),
             (object(), 128, 256),
             {"BLOCK_SIZE": 64, "num_warps": 4},
@@ -47,7 +47,7 @@ class MetadataTests(unittest.TestCase):
         )
 
     def test_successful_record_schema_includes_launch_metadata(self):
-        record = main.KernelRunRecord(
+        record = records.KernelRunRecord(
             args=["4096"],
             kwargs={"BLOCK_SIZE": "1024"},
             scalar_args={"n_elements": 4096, "BLOCK_SIZE": 1024},
