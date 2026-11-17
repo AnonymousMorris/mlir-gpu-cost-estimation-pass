@@ -1,6 +1,7 @@
 #include "CostConfig.h"
 #include "CostIRBuilder.h"
 #include "LayoutConversion.h"
+#include "MemoryMask.h"
 #include "Reduction.h"
 #include "core.h"
 #include "gpuSpec.h"
@@ -110,14 +111,20 @@ int64_t tensor_k_dim(Value value) {
 
 Value analyze_triton_load(CostIRBuilder &costBuilder, triton::LoadOp loadOp,
                           const GpuSpec &) {
-    return scale_cost(costBuilder, tensor_cost(*loadOp.getOperation()),
-                      vector_byte_width(loadOp.getResult()));
+    Value fullPayload = scale_cost(
+        costBuilder, tensor_cost(*loadOp.getOperation()),
+        vector_byte_width(loadOp.getResult()));
+    return costBuilder.mul(fullPayload, memory_mask_fraction(
+        costBuilder, loadOp.getMask(), *loadOp.getOperation()));
 }
 
 Value analyze_triton_store(CostIRBuilder &costBuilder, triton::StoreOp storeOp,
                            const GpuSpec &) {
-    return scale_cost(costBuilder, tensor_cost(*storeOp.getOperation()),
-                      vector_byte_width(storeOp.getValue()));
+    Value fullPayload = scale_cost(
+        costBuilder, tensor_cost(*storeOp.getOperation()),
+        vector_byte_width(storeOp.getValue()));
+    return costBuilder.mul(fullPayload, memory_mask_fraction(
+        costBuilder, storeOp.getMask(), *storeOp.getOperation()));
 }
 
 CostType dot_cost_type(triton::DotOp dotOp) {
@@ -220,6 +227,11 @@ Value analyze_ttg_local_load(CostIRBuilder &costBuilder,
 CostVector analyze_ttg_async_copy(
     CostIRBuilder &costBuilder,
     triton::gpu::AsyncCopyGlobalToLocalOp copyOp) {
+    if (copyOp.getMask()) {
+        record_memory_mask_upper_bound(
+            costBuilder, *copyOp.getOperation(),
+            "async copy mask not modeled; retaining full global and shared payloads");
+    }
     Value copyCost = scale_cost(
         costBuilder, tensor_cost(*copyOp.getOperation()),
         vector_byte_width(copyOp.getSrc()));

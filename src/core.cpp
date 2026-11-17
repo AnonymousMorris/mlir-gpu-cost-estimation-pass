@@ -84,6 +84,9 @@ void analyze_cost(Operation &op, llvm::raw_ostream &os, const GpuSpec &gpu) {
     costFunc->setAttr("cost.threads_per_block",
                       builder.getI64IntegerAttr(gpu.threadsPerCTA()));
     costFunc->setAttr("cost.work_unit", builder.getStringAttr("block"));
+    costFunc->setAttr("cost.memory_mask_model", builder.getStringAttr(
+        costFunc->hasAttr("cost.memory_mask_approximations") ? "upper_bound"
+                                                           : "exact"));
 
     costBuilder.finalize(perBlockCost);
     costBuilder.simplify();

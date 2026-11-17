@@ -121,6 +121,8 @@ def analyze(
                 scalar_args=scalar_args,
                 grid_size=grid_size,
                 schedule=schedule,
+                memory_mask_model=parsed_cost.memory_mask_model,
+                memory_mask_approximations=parsed_cost.memory_mask_approximations,
             )
         )
     return rows, skips

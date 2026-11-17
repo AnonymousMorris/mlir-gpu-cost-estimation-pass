@@ -263,14 +263,44 @@ untyped `arith.divsi` and `arith.remsi` configuration weights have been removed.
 ### Memory and reduction work
 
 Global-memory payloads are scaled by their element types: for example, FP16
-values contribute two bytes per element and FP32 values contribute four. This
-is logical payload accounting; masks, cache lines, alignment, coalescing, and
-partially used memory transactions are not modeled yet.
+values contribute two bytes per element and FP32 values contribute four.
+Ordinary `tt.load` and `tt.store` operations also scale their existing payload
+by the fraction of elements enabled by a supported mask:
 
-An asynchronous global-to-local copy contributes its type-scaled payload bytes
-to both `memory` and `l1`. Since category times are combined with `max`, this
-models the same transfer at both levels without adding the payload latency
-twice.
+- Scalar and dense constant boolean masks use their exact true-element fraction.
+- Direct `tt.make_range` comparisons against an i32 constant/splat or a named
+  i32 kernel argument count the enabled interval. Signed and unsigned strict
+  and inclusive comparisons, equality/inequality, and swapped operands are
+  supported. Unsigned ranges with negative starts are deferred.
+- Splats, broadcasts, dimension expansion, and layout conversion preserve this
+  fraction. For example, `arange(128) < N` contributes
+  `clamp(N, 0, 128) / 128` of the original payload. Count arithmetic widens
+  bounds before subtraction and clamps with integer min/max; both symbolic
+  parsers understand these operations.
+
+The recognizer does not interpret index arithmetic, mask conjunctions,
+data-dependent predicates, or bounds produced by loops, branches, or program
+IDs. Those masks retain the old full-payload estimate. A loop-independent mask
+can still use the existing body-cost-times-trip-count rule; a loop-dependent
+mask is not summed or guessed, and its induction variable is never bound as a
+host argument. In particular, layer norm's `off + arange(B) < N` mask remains
+an upper-bound approximation in this first implementation.
+
+The pass emits `cost.memory_mask_model = "exact"` when all encountered masks
+are supported (or absent), or `"upper_bound"` with a deduplicated
+`cost.memory_mask_approximations` string array explaining retained full payloads.
+Here **exact describes the mask fraction only**, not unique addresses, physical
+transactions, DRAM traffic, or runtime. Existing per-thread payload accounting,
+layout replication, scalar-store scaling, byte weights, and final block scaling
+are unchanged. Masked-out loads do not read their global source even if an
+`other` value is supplied, but subsequent arithmetic is not reduced.
+
+An asynchronous global-to-local copy still contributes its full type-scaled
+payload bytes to both `memory` and `l1`. Masked async copies explicitly record
+an upper-bound note; this recognizer does not reduce either component. This
+avoids assuming a disabled global read also eliminates shared-memory work:
+Ampere async copies can zero-fill shared destinations. Cache lines, cache reuse,
+alignment, coalescing, and partially used memory transactions remain unmodeled.
 
 A `tt.reduce` derives thread-local values, participating warp lanes, and
 remaining inter-warp values from the operand's linear layout. The current model
@@ -475,6 +505,10 @@ The default JSON output is `output/cost_predictions.json`. Each successful
 prediction contains:
 
 - `category_expressions`: the eight simplified symbolic work equations
+- `memory_mask_model`: `exact` mask fractions, `upper_bound` full-payload
+  approximations, or `unknown` for older cost functions without mask metadata
+- `memory_mask_approximations`: reasons for unmodeled masks, including the
+  operation name; these describe mask accounting, not measured runtime bounds
 - `scalar_args`: named numeric launch arguments used for symbolic evaluation
 - `scheduled_work`: evaluated busiest-SM work for each category
 - `schedule`: scheduler model, launch inputs, block count, and wave count
@@ -486,7 +520,9 @@ prediction contains:
 - `predicted_ms` and `time_ms`: predicted and measured runtime
 
 The summary also includes `bound_counts`, counting compute-bound and memory-bound
-predictions across all successful records, including those excluded from plots.
+predictions across all successful records, including those excluded from plots,
+and `memory_mask_counts`, counting `exact`, `upper_bound`, and `unknown` mask
+models. Old functions without mask metadata are never silently labeled exact.
 
 Generated figures are stored in `output/` by default:
 

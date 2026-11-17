@@ -25,6 +25,8 @@ class CostResult:
     scalar_args: dict[str, int | float]
     grid_size: list[int]
     schedule: Schedule
+    memory_mask_model: str = "unknown"
+    memory_mask_approximations: tuple[str, ...] = ()
 
     @property
     def group_ms(self) -> dict[str, float]:
@@ -67,14 +69,22 @@ def summarize(
         group: sum(row.bound == group for row in rows)
         for group in RESOURCE_GROUPS
     }
+    mask_counts = {
+        model: sum(row.memory_mask_model == model for row in rows)
+        for model in ("exact", "upper_bound", "unknown")
+    }
     if not rows:
-        return {"count": 0, "skip_count": len(skips), "bound_counts": bound_counts}
+        return {
+            "count": 0, "skip_count": len(skips), "bound_counts": bound_counts,
+            "memory_mask_counts": mask_counts,
+        }
     ratios = [row.predicted_ms / row.time_ms for row in rows if row.time_ms > 0]
     factors = [max(ratio, 1.0 / ratio) for ratio in ratios if ratio > 0]
     return {
         "count": len(rows),
         "skip_count": len(skips),
         "bound_counts": bound_counts,
+        "memory_mask_counts": mask_counts,
         "median_predicted_over_actual": median(ratios),
         "mean_predicted_over_actual": sum(ratios) / len(ratios),
         "median_multiplicative_error": median(factors),

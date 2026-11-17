@@ -1,0 +1,141 @@
+#blocked = #ttg.blocked<{sizePerThread = [1], threadsPerWarp = [32], warpsPerCTA = [1], order = [0]}>
+#matrix = #ttg.blocked<{sizePerThread = [1, 1], threadsPerWarp = [1, 32], warpsPerCTA = [1, 1], order = [1, 0]}>
+#slice = #ttg.slice<{dim = 0, parent = #matrix}>
+#shared = #ttg.swizzled_shared<{vec = 1, perPhase = 1, maxPhase = 1, order = [0]}>
+#smem = #ttg.shared_memory
+module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 1 : i32, ttg.target = "cuda:86", "ttg.threads-per-warp" = 32 : i32} {
+  tt.func public @range_mask(%p: !tt.ptr<f32>, %N: i32 loc("N")) {
+    %range = tt.make_range {end = 128 : i32, start = 0 : i32} : tensor<128xi32, #blocked>
+    %limit = tt.splat %N : i32 -> tensor<128xi32, #blocked>
+    %mask = arith.cmpi slt, %range, %limit : tensor<128xi32, #blocked>
+    %ptrs = tt.splat %p : !tt.ptr<f32> -> tensor<128x!tt.ptr<f32>, #blocked>
+    %addresses = tt.addptr %ptrs, %range : tensor<128x!tt.ptr<f32>, #blocked>, tensor<128xi32, #blocked>
+    %zero = arith.constant dense<0.0> : tensor<128xf32, #blocked>
+    %x = tt.load %addresses, %mask, %zero : tensor<128x!tt.ptr<f32>, #blocked>
+    %sum = arith.addf %x, %x : tensor<128xf32, #blocked>
+    tt.store %addresses, %sum, %mask : tensor<128x!tt.ptr<f32>, #blocked>
+    tt.return
+  }
+  tt.func public @constant_bound(%p: !tt.ptr<f16>) {
+    %range = tt.make_range {end = 128 : i32, start = 0 : i32} : tensor<128xi32, #blocked>
+    %limit = arith.constant dense<37> : tensor<128xi32, #blocked>
+    %mask = arith.cmpi slt, %range, %limit : tensor<128xi32, #blocked>
+    %ptrs = tt.splat %p : !tt.ptr<f16> -> tensor<128x!tt.ptr<f16>, #blocked>
+    %x = tt.load %ptrs, %mask : tensor<128x!tt.ptr<f16>, #blocked>
+    tt.store %ptrs, %x, %mask : tensor<128x!tt.ptr<f16>, #blocked>
+    tt.return
+  }
+  tt.func public @constant_masks(%p: !tt.ptr<f64>) {
+    %ptrs = tt.splat %p : !tt.ptr<f64> -> tensor<8x!tt.ptr<f64>, #blocked>
+    %yes = arith.constant dense<true> : tensor<8xi1, #blocked>
+    %no = arith.constant dense<false> : tensor<8xi1, #blocked>
+    %some = arith.constant dense<[true, false, true, false, false, true, false, false]> : tensor<8xi1, #blocked>
+    %a = tt.load %ptrs, %yes : tensor<8x!tt.ptr<f64>, #blocked>
+    %b = tt.load %ptrs, %no : tensor<8x!tt.ptr<f64>, #blocked>
+    %c = tt.load %ptrs, %some : tensor<8x!tt.ptr<f64>, #blocked>
+    tt.store %ptrs, %a, %yes : tensor<8x!tt.ptr<f64>, #blocked>
+    tt.store %ptrs, %b, %no : tensor<8x!tt.ptr<f64>, #blocked>
+    tt.store %ptrs, %c, %some : tensor<8x!tt.ptr<f64>, #blocked>
+    tt.return
+  }
+  tt.func public @scalar_masks(%p: !tt.ptr<f32>) {
+    %yes = arith.constant true
+    %no = arith.constant false
+    %zero = arith.constant 0.0 : f32
+    %a = tt.load %p, %yes, %zero : !tt.ptr<f32>
+    %b = tt.load %p, %no, %zero : !tt.ptr<f32>
+    tt.store %p, %a, %yes : !tt.ptr<f32>
+    tt.store %p, %b, %no : !tt.ptr<f32>
+    tt.return
+  }
+  tt.func public @independent_loop(%p: !tt.ptr<f32>, %N: i32 loc("N")) {
+    %range = tt.make_range {end = 128 : i32, start = 0 : i32} : tensor<128xi32, #blocked>
+    %limit = tt.splat %N : i32 -> tensor<128xi32, #blocked>
+    %mask = arith.cmpi slt, %range, %limit : tensor<128xi32, #blocked>
+    %ptrs = tt.splat %p : !tt.ptr<f32> -> tensor<128x!tt.ptr<f32>, #blocked>
+    %c0 = arith.constant 0 : i32
+    %c1 = arith.constant 1 : i32
+    %c3 = arith.constant 3 : i32
+    scf.for %i = %c0 to %c3 step %c1 : i32 {
+      %x = tt.load %ptrs, %mask : tensor<128x!tt.ptr<f32>, #blocked>
+      %sum = arith.addf %x, %x : tensor<128xf32, #blocked>
+      tt.store %ptrs, %sum, %mask : tensor<128x!tt.ptr<f32>, #blocked>
+    }
+    tt.return
+  }
+  tt.func public @dependent_loop(%p: !tt.ptr<f32>) {
+    %range = tt.make_range {end = 128 : i32, start = 0 : i32} : tensor<128xi32, #blocked>
+    %ptrs = tt.splat %p : !tt.ptr<f32> -> tensor<128x!tt.ptr<f32>, #blocked>
+    %c0 = arith.constant 0 : i32
+    %c1 = arith.constant 1 : i32
+    %c3 = arith.constant 3 : i32
+    scf.for %i = %c0 to %c3 step %c1 : i32 {
+      %limit = tt.splat %i : i32 -> tensor<128xi32, #blocked>
+      %mask = arith.cmpi slt, %range, %limit : tensor<128xi32, #blocked>
+      %x = tt.load %ptrs, %mask : tensor<128x!tt.ptr<f32>, #blocked>
+      tt.store %ptrs, %x, %mask : tensor<128x!tt.ptr<f32>, #blocked>
+    }
+    tt.return
+  }
+  tt.func public @program_mask(%p: !tt.ptr<f32>, %N: i32 loc("N")) {
+    %pid = tt.get_program_id x : i32
+    %base = tt.splat %pid : i32 -> tensor<128xi32, #blocked>
+    %range = tt.make_range {end = 128 : i32, start = 0 : i32} : tensor<128xi32, #blocked>
+    %indices = arith.addi %base, %range : tensor<128xi32, #blocked>
+    %limit = tt.splat %N : i32 -> tensor<128xi32, #blocked>
+    %mask = arith.cmpi slt, %indices, %limit : tensor<128xi32, #blocked>
+    %ptrs = tt.splat %p : !tt.ptr<f32> -> tensor<128x!tt.ptr<f32>, #blocked>
+    %x = tt.load %ptrs, %mask : tensor<128x!tt.ptr<f32>, #blocked>
+    tt.store %ptrs, %x, %mask : tensor<128x!tt.ptr<f32>, #blocked>
+    tt.return
+  }
+  tt.func public @unknown_mask(%p: !tt.ptr<f32>, %mask: tensor<128xi1, #blocked>) {
+    %ptrs = tt.splat %p : !tt.ptr<f32> -> tensor<128x!tt.ptr<f32>, #blocked>
+    %x = tt.load %ptrs, %mask : tensor<128x!tt.ptr<f32>, #blocked>
+    tt.store %ptrs, %x, %mask : tensor<128x!tt.ptr<f32>, #blocked>
+    tt.return
+  }
+  tt.func public @branch_bound(%p: !tt.ptr<f32>, %condition: i1) {
+    %N = scf.if %condition -> (i32) {
+      %a = arith.constant 37 : i32
+      scf.yield %a : i32
+    } else {
+      %b = arith.constant 71 : i32
+      scf.yield %b : i32
+    }
+    %range = tt.make_range {end = 128 : i32, start = 0 : i32} : tensor<128xi32, #blocked>
+    %limit = tt.splat %N : i32 -> tensor<128xi32, #blocked>
+    %mask = arith.cmpi slt, %range, %limit : tensor<128xi32, #blocked>
+    %ptrs = tt.splat %p : !tt.ptr<f32> -> tensor<128x!tt.ptr<f32>, #blocked>
+    %x = tt.load %ptrs, %mask : tensor<128x!tt.ptr<f32>, #blocked>
+    tt.store %ptrs, %x, %mask : tensor<128x!tt.ptr<f32>, #blocked>
+    tt.return
+  }
+  tt.func public @nonuniform_bound(%p: !tt.ptr<f32>, %limits: tensor<128xi32, #blocked>) {
+    %range = tt.make_range {end = 128 : i32, start = 0 : i32} : tensor<128xi32, #blocked>
+    %mask = arith.cmpi slt, %range, %limits : tensor<128xi32, #blocked>
+    %ptrs = tt.splat %p : !tt.ptr<f32> -> tensor<128x!tt.ptr<f32>, #blocked>
+    %x = tt.load %ptrs, %mask : tensor<128x!tt.ptr<f32>, #blocked>
+    tt.store %ptrs, %x, %mask : tensor<128x!tt.ptr<f32>, #blocked>
+    tt.return
+  }
+  tt.func public @broadcast_mask(%p: !tt.ptr<f16>, %N: i32 loc("N")) {
+    %range = tt.make_range {end = 128 : i32, start = 0 : i32} : tensor<128xi32, #slice>
+    %columns = tt.expand_dims %range {axis = 0 : i32} : tensor<128xi32, #slice> -> tensor<1x128xi32, #matrix>
+    %indices = tt.broadcast %columns : tensor<1x128xi32, #matrix> -> tensor<4x128xi32, #matrix>
+    %limit = tt.splat %N : i32 -> tensor<4x128xi32, #matrix>
+    %mask = arith.cmpi slt, %indices, %limit : tensor<4x128xi32, #matrix>
+    %ptrs = tt.splat %p : !tt.ptr<f16> -> tensor<4x128x!tt.ptr<f16>, #matrix>
+    %x = tt.load %ptrs, %mask : tensor<4x128x!tt.ptr<f16>, #matrix>
+    tt.store %ptrs, %x, %mask : tensor<4x128x!tt.ptr<f16>, #matrix>
+    tt.return
+  }
+  tt.func public @async_mask(%p: !tt.ptr<f32>) {
+    %ptrs = tt.splat %p : !tt.ptr<f32> -> tensor<128x!tt.ptr<f32>, #blocked>
+    %mask = arith.constant dense<false> : tensor<128xi1, #blocked>
+    %zero = arith.constant dense<0.0> : tensor<128xf32, #blocked>
+    %local = ttg.local_alloc : () -> !ttg.memdesc<128xf32, #shared, #smem, mutable>
+    %copy = ttg.async_copy_global_to_local %ptrs, %local mask %mask other %zero : tensor<128x!tt.ptr<f32>, #blocked> -> <128xf32, #shared, #smem, mutable>
+    tt.return
+  }
+}

@@ -51,6 +51,10 @@ def build_equations(cost_function: CostFunction) -> dict[str, sympy.Expr]:
             values[op.result] = sympy.ceiling(values[op.lhs] / values[op.rhs])
             continue
 
+        if isinstance(op, arith.MinSIOp):
+            values[op.result] = sympy.Min(values[op.lhs], values[op.rhs])
+            continue
+
         if isinstance(op, arith.ExtUIOp):
             width = ir.IntegerType(op.operands[0].type).width
             values[op.result] = sympy.Mod(values[op.operands[0]], 2**width)

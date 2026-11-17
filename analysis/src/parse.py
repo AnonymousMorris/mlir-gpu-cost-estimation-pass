@@ -22,6 +22,8 @@ class ParsedCost:
     metadata: BlockMetadata
     weight_symbols: frozenset[str]
     runtime_symbols: frozenset[str]
+    memory_mask_model: str = "unknown"
+    memory_mask_approximations: tuple[str, ...] = ()
 
 
 def cost_equations(mlir: str) -> dict[str, sympy.Expr]:
@@ -54,6 +56,25 @@ def block_metadata(mlir: str) -> BlockMetadata:
     return _block_metadata(parse_cost_function(mlir))
 
 
+def _memory_mask_metadata(cost_function: CostFunction) -> tuple[str, tuple[str, ...]]:
+    attributes = cost_function.operation.operation.attributes
+    model = (
+        attributes["cost.memory_mask_model"].value
+        if "cost.memory_mask_model" in attributes else "unknown"
+    )
+    notes = (
+        tuple(note.value for note in attributes["cost.memory_mask_approximations"])
+        if "cost.memory_mask_approximations" in attributes else ()
+    )
+    if model not in {"exact", "upper_bound", "unknown"}:
+        raise ValueError(f"unsupported memory mask model: {model}")
+    if any(not isinstance(note, str) or not note.strip() for note in notes):
+        raise ValueError("memory mask approximation reasons must be nonempty strings")
+    if (model == "upper_bound") != bool(notes):
+        raise ValueError("upper-bound memory mask metadata must include approximation reasons")
+    return model, notes
+
+
 def parse_cost_analysis(mlir: str) -> ParsedCost:
     """Parse equations, execution metadata, and symbolic input roles."""
     cost_function = parse_cost_function(mlir)
@@ -75,6 +96,7 @@ def parse_cost_analysis(mlir: str) -> ParsedCost:
             "cost arguments have invalid cost.kind: " + ", ".join(invalid_kinds)
         )
 
+    mask_model, mask_approximations = _memory_mask_metadata(cost_function)
     return ParsedCost(
         equations=build_equations(cost_function),
         metadata=_block_metadata(cost_function),
@@ -84,6 +106,8 @@ def parse_cost_analysis(mlir: str) -> ParsedCost:
         runtime_symbols=frozenset(
             name for name, kind in kinds.items() if kind == "runtime"
         ),
+        memory_mask_model=mask_model,
+        memory_mask_approximations=mask_approximations,
     )
 
 

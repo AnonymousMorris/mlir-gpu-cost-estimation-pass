@@ -46,6 +46,7 @@ add_llvm_library(
     Reduction.cpp
     IntegerDivision.cpp
     LayoutConversion.cpp
+    MemoryMask.cpp
     CostIRBuilder.cpp
     Loop.cpp
 
@@ -127,6 +128,19 @@ if(BUILD_TESTING)
                     ${TRITON_OPT_EXECUTABLE}
                     $<TARGET_FILE:MyPass>
                     ${CMAKE_CURRENT_SOURCE_DIR}/../tests/triton/tiled_matmul.ttgir
+            )
+
+            add_test(
+                NAME global-memory-masks
+                COMMAND
+                    ${UV_EXECUTABLE}
+                    run
+                    --project ${CMAKE_CURRENT_SOURCE_DIR}/../analysis
+                    python
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../analysis/tests/verify_memory_masks_pass.py
+                    ${TRITON_OPT_EXECUTABLE}
+                    $<TARGET_FILE:MyPass>
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/triton/memory_masks.ttgir
             )
 
             add_test(
