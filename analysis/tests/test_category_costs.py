@@ -283,7 +283,7 @@ def test_rejects_invalid_cost_weights(weight):
     "arith.cmpf16", "arith.cmpf64",
     "arith.divsi16", "arith.divsi32", "arith.divsi64", "arith.divui",
     "arith.remsi16", "arith.remsi32", "arith.remsi64", "arith.remui",
-    "triton.extern.__nv_asinf", "triton_gpu.convert_layout_cost",
+    "triton.extern.__nv_asinf",
     "arith.extf.f16_to_f64", "arith.extf.bf16_to_f64", "arith.extf.f32_to_f64",
 ])
 def test_unmodeled_costs_require_explicit_calibration(name):
@@ -362,6 +362,14 @@ def test_ampere_float_division_uses_an_instruction_mix():
 def test_native_float_extensions_count_one_instruction():
     config = json.loads((ANALYSIS_ROOT / "cost_analysis_config.json").read_text())
     for name in ("arith.extf.f16_to_f32", "arith.extf.bf16_to_f32"):
+        assert config["parameters"][name]["work_per_count"] == 1.0
+
+
+def test_layout_movement_has_explicit_per_unit_weights():
+    config = json.loads((ANALYSIS_ROOT / "cost_analysis_config.json").read_text())
+    assert "triton_gpu.convert_layout_cost" not in config["parameters"]
+    for kind in ("shuffle", "select", "shared_byte", "warp_sync", "cta_barrier"):
+        name = f"triton_gpu.layout.{kind}_cost"
         assert config["parameters"][name]["work_per_count"] == 1.0
 
 

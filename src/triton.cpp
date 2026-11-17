@@ -1,5 +1,6 @@
 #include "CostConfig.h"
 #include "CostIRBuilder.h"
+#include "LayoutConversion.h"
 #include "Reduction.h"
 #include "core.h"
 #include "gpuSpec.h"
@@ -192,17 +193,6 @@ Value analyze_ttg_local_load(CostIRBuilder &costBuilder,
                       loadBytesPerThread);
 }
 
-Value analyze_ttg_convert_layout(CostIRBuilder &costBuilder,
-                                 triton::gpu::ConvertLayoutOp convertLayoutOp,
-                                 const GpuSpec &) {
-    int64_t elemsPerThread =
-        std::max<int64_t>(elements_per_thread(convertLayoutOp.getSrc()),
-                          elements_per_thread(convertLayoutOp.getResult()));
-    return scale_cost(costBuilder,
-                      tensor_cost(*convertLayoutOp.getOperation()),
-                      elemsPerThread);
-}
-
 CostVector analyze_ttg_async_copy(
     CostIRBuilder &costBuilder,
     triton::gpu::AsyncCopyGlobalToLocalOp copyOp) {
@@ -288,9 +278,7 @@ std::optional<CostVector> analyze_triton_tensor_op(CostIRBuilder &costBuilder,
     }
 
     if (auto convertLayoutOp = dyn_cast<triton::gpu::ConvertLayoutOp>(op)) {
-        return costBuilder.costVector(
-            CostType::FP32,
-            analyze_ttg_convert_layout(costBuilder, convertLayoutOp, gpu));
+        return analyze_layout_conversion(costBuilder, convertLayoutOp, gpu);
     }
 
     if (auto copyOp =

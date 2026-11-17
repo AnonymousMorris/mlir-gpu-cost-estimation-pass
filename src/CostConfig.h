@@ -100,8 +100,7 @@ inline const CostConfig NamedTensorOpCost = {
     {"ttg.local_alloc", "triton_gpu.local_alloc_cost"},
     // Local/shared memory load, scaled by the result element width in bytes.
     {"ttg.local_load", "triton_gpu.local_load_cost"},
-    // Layout movement via register shuffles and/or shared-memory traffic.
-    {"ttg.convert_layout", "triton_gpu.convert_layout_cost"},
+    // ttg.convert_layout uses the path-sensitive model in LayoutConversion.cpp.
     // Asynchronous global-to-local copy, scaled by source payload bytes.
     {"ttg.async_copy_global_to_local", "triton.load_cost"},
 };

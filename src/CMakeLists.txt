@@ -45,6 +45,7 @@ add_llvm_library(
     triton.cpp
     Reduction.cpp
     IntegerDivision.cpp
+    LayoutConversion.cpp
     CostIRBuilder.cpp
     Loop.cpp
 
@@ -139,6 +140,19 @@ if(BUILD_TESTING)
                     ${TRITON_OPT_EXECUTABLE}
                     $<TARGET_FILE:MyPass>
                     ${CMAKE_CURRENT_SOURCE_DIR}/../tests/triton/shared_element_widths.ttgir
+            )
+
+            add_test(
+                NAME ampere-layout-conversion
+                COMMAND
+                    ${UV_EXECUTABLE}
+                    run
+                    --project ${CMAKE_CURRENT_SOURCE_DIR}/../analysis
+                    python
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../analysis/tests/verify_layout_conversion_pass.py
+                    ${TRITON_OPT_EXECUTABLE}
+                    $<TARGET_FILE:MyPass>
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/triton/layout_conversion.ttgir
             )
 
             add_test(

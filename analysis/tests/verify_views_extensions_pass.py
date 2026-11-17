@@ -27,14 +27,15 @@ def main() -> None:
     f16 = symbol("arith.extf.f16_to_f32")
     bf16 = symbol("arith.extf.bf16_to_f32")
     store = symbol("triton.store_cost")
-    layout = symbol("triton_gpu.convert_layout_cost")
+    shared_byte = symbol("triton_gpu.layout.shared_byte_cost")
+    warp_sync = symbol("triton_gpu.layout.warp_sync_cost")
     expected = {
         "bitcast_scalar": {},
         "bitcast_tensor": {},
         "bitcast_then_add": {"fp32": 128 * symbol("arith.addf32")},
         "transpose": {},
-        # The existing layout proxy uses max(src, dst) elements per thread.
-        "transpose_then_convert": {"fp32": 256 * layout},
+        # Transpose is structural; the following conversion stages through shared.
+        "transpose_then_convert": {"int32": 32 * warp_sync, "l1": 1536 * shared_byte},
         "extend_scalar_f16": {"fp32": 32 * f16, "memory": 128 * store},
         "extend_scalar_bf16": {"int32": 32 * bf16, "memory": 128 * store},
         "extend_tensor_f16": {"fp32": 128 * f16},
@@ -43,7 +44,6 @@ def main() -> None:
         "extend_unconfigured": {"fp32": 32 * symbol("arith.extf.f64_to_f128")},
     }
     rejected = {
-        "transpose_then_convert": "unmodeled cost weight triton_gpu.convert_layout_cost",
         "extend_f32_f64": "unmodeled cost weight arith.extf.f32_to_f64",
         "extend_unconfigured": "missing work_per_count for cost weight: arith.extf.f64_to_f128",
     }

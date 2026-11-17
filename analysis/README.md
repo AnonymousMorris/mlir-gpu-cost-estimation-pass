@@ -34,7 +34,7 @@ Each result is an independent symbolic equation:
 |---|---|---|
 | `fp32` | Per-lane instruction-equivalents | Scalar FP arithmetic and current movement/conversion proxies |
 | `fp64` | Per-lane instruction-equivalents | Scalar FP64 arithmetic |
-| `int32` | Per-lane instruction-equivalents | Integer/index arithmetic, comparisons, ranges, and pointer arithmetic |
+| `int32` | Per-lane instruction-equivalents | Integer/index arithmetic, comparisons, ranges, pointer arithmetic, and layout movement proxies |
 | `sfu` | Per-lane instruction-equivalents | Special functions and external elementwise functions |
 | `tensor` | FLOPs | Two FLOPs per dot multiply-accumulate |
 | `l1` | Bytes | Logical shared-memory payload |
@@ -50,17 +50,16 @@ Weights are explicit work multipliers in the result category's unit. Operations
 whose expansion or communication cost has not been modeled must not silently
 receive weight 1. The checked-in configuration marks unmodeled integer
 widths/targets, unsigned and ceiling division/remainder, unmodeled floating-division
-variants, external `__nv_asinf`, and generic layout conversion with
+variants, and external `__nv_asinf` with
 `work_per_count: null` and an
 `unmodeled_reason`. If their symbols occur in the evaluated equations, analysis
 records a skip with that reason.
 
 To opt into a calibrated approximation, replace the null with an explicit finite,
 nonnegative `work_per_count` in `cost_analysis_config.json`. This is a deliberate
-model choice, not automatic fallback. Layout-conversion proxies still consume
-the FP32 instruction budget; supplying a weight does not infer their physical
-communication path. FP16 packing, 64-bit integer operations, compiler fusion,
-and reduction shuffles remain coarse approximations.
+model choice, not automatic fallback. Layout conversion instead has the explicit
+path-sensitive model below. General FP16 arithmetic packing, 64-bit integer
+operations, compiler fusion, and reduction shuffles remain coarse approximations.
 
 Unsupported IR operations are different from uncalibrated symbolic costs:
 the C++ pass rejects them for scalar and tensor operands alike, including inside
@@ -74,7 +73,7 @@ broadcasts) remain supported; an absent handler never means zero cost.
   space, as well as tensor shape/encoding compatibility.
 - `tt.trans` is zero-cost at the TTGIR boundary: it permutes shape and encoding
   without changing register ownership. Surrounding `ttg.convert_layout` operations
-  retain their separate cost and still require calibration.
+  retain their separate path-sensitive movement cost.
 - `arith.extf` has source/destination-specific weights, not a generic unit cost.
   `arith.extf.f16_to_f32` counts one floating conversion per value in the FP32
   instruction budget. `arith.extf.bf16_to_f32` counts one integer shift per value
@@ -93,6 +92,49 @@ extension fixtures produces `cvt.f32.f16` and `cvt.f32.bf16` in PTX; the checked
 CUDA assembler lowers them to a floating conversion (`HADD2.F32`) and an
 integer shift (`SHF.L.U32`), respectively. Packing, deduplication, and fusion
 with neighboring operations are not modeled.
+
+### Ampere layout conversion
+
+`src/LayoutConversion.cpp` models `ttg.convert_layout` separately from tensor
+arithmetic. It uses Triton's `minimalCvtLayout` and warp decomposition helpers,
+not a universal per-element conversion weight:
+
+- Identical register ownership and within-thread register reordering are zero
+  work (SSA rewiring), including equivalent encodings and register broadcasts.
+- Warp-only movement follows the backend's shuffle-versus-shared choice and
+  Ship/Swap algorithms. Counts include packing into 32-bit words, data
+  selection/permutation, and splitting 64-bit values into two shuffle words.
+  An enclosing `always_use_warp_shuffle` attribute follows the backend's policy.
+- Shared-memory paths count source-store plus destination-load payload bytes,
+  after removing register broadcasts. `i1` is widened to `i8`. Scratch repetition
+  selection includes Ampere's `ldmatrix` load tiles, not Hopper's `stmatrix`.
+  Each scratch repetition needs a synchronization after stores; scratch reuse
+  adds another, giving `2 * repetitions - 1` warp syncs or CTA barriers.
+- Inter-thread movement supports `cuda:80`, `cuda:86`, and `cuda:87` with
+  1/8/16/32/64-bit elements, including 64-bit pointers. Cross-CTA movement,
+  generic-linear inter-thread conversions, other widths/targets, and forced
+  warp shuffles that cross warps fail explicitly, without a generic fallback.
+
+| Parameter suffix (under `triton_gpu.layout.`) | Category/unit |
+|---|---|
+| `shuffle_cost` | INT32 instruction-equivalents per 32-bit shuffle |
+| `select_cost` | INT32 instruction-equivalents per word select/permute |
+| `shared_byte_cost` | L1 bytes per payload byte |
+| `warp_sync_cost` | INT32 instruction-equivalents per issued warp sync |
+| `cta_barrier_cost` | INT32 instruction-equivalents per issued CTA barrier |
+
+These explicit per-unit multipliers default to 1; missing weights still fail.
+Work is per-thread and receives the existing block scaling exactly once.
+Instruction counts use the INT32 capacity as a **coarse throughput proxy**, not
+measured shuffle/barrier throughput. The model does not simulate barrier wait
+latency, shared-memory bank conflicts, scratch address arithmetic, packing
+instructions outside the movement algorithm, occupancy, or compiler fusion.
+
+The policy follows `lib/Conversion/TritonGPUToLLVM/ConvertLayoutOpToLLVM.cpp`,
+NVIDIA's `ConvertLayoutOpSwizzlingConversion`, and `getSrcDstTiles` in Triton's
+conversion utilities. `verify_layout_conversion_pass.py` checks symbolic counts
+and live-result NVIDIA LLVM lowering, including ordinary shared loads/stores,
+`ldmatrix`, scratch reuse, register broadcasts, packing, and pointer width.
 
 ### Floating-point comparisons
 
@@ -232,8 +274,9 @@ A `tt.reduce` derives thread-local values, participating warp lanes, and
 remaining inter-warp values from the operand's linear layout. The current model
 counts thread-local combines and the target-independent warp shuffle tree. Warp
 communication is represented by the `triton.reduce_shuffle_cost` weight.
-Target-specific packing/redux instructions and inter-warp layout conversions
-are not modeled yet; the inter-warp stage is an explicit zero-cost stub.
+Target-specific packing/redux instructions and the reduction's internal
+inter-warp stage are not modeled yet; that stage is an explicit zero-cost stub.
+Explicit `ttg.convert_layout` operations use the separate model above.
 
 The pass no longer collapses these categories into a scalar `Max` before
 returning them. Control-flow alternatives can still produce `Max` expressions
@@ -425,9 +468,11 @@ Old six-result cost functions are rejected by the analyzer.
   `memory_bytes_per_count`, and `l1_bytes_per_count`.
 - Resource assignment remains in C++; JSON weights only scale work.
 - Unmodeled integer widths/targets, unsigned/ceiling division/remainder,
-  floating-division variants, external asin, and layout-conversion weights are
-  null until explicitly calibrated. Runs may therefore report more skips than
-  older versions that assigned them placeholder weight 1.
+  floating-division variants, and external asin weights are null until explicitly
+  calibrated. Runs may therefore report more skips than older versions that
+  assigned them placeholder weight 1.
+- Replace `triton_gpu.convert_layout_cost` with the five `triton_gpu.layout.*`
+  weights above. Regenerate equations; the old FP32 per-element proxy is removed.
 - Prediction JSON no longer includes the legacy `expression = Max(work...)`
   field, which compared incompatible units. Use `category_expressions` instead.
 

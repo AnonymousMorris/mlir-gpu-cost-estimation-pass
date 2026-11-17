@@ -132,10 +132,11 @@
     "triton.make_range_cost": {"work_per_count": 1.0},
     "triton.splat_cost": {"work_per_count": 1.0},
     "triton.reduce_shuffle_cost": {"work_per_count": 1.0},
-    "triton_gpu.convert_layout_cost": {
-      "work_per_count": null,
-      "unmodeled_reason": "Layout conversion needs a layout-sensitive communication model or an explicit proxy."
-    },
+    "triton_gpu.layout.shuffle_cost": {"work_per_count": 1.0},
+    "triton_gpu.layout.select_cost": {"work_per_count": 1.0},
+    "triton_gpu.layout.shared_byte_cost": {"work_per_count": 1.0},
+    "triton_gpu.layout.warp_sync_cost": {"work_per_count": 1.0},
+    "triton_gpu.layout.cta_barrier_cost": {"work_per_count": 1.0},
     "triton_gpu.local_alloc_cost": {"work_per_count": 1.0},
     "triton_gpu.local_load_cost": {"work_per_count": 1.0},
     "arith.addf16": {"work_per_count": 1.0},
