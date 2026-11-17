@@ -10,6 +10,27 @@ import sympy
 # l1 and memory use bytes. The shared resource has no separate work equation.
 PIPELINES = ("fp32", "fp64", "int32", "sfu", "tensor", "l1", "memory")
 RESOURCES = (*PIPELINES, "fp32_int32")
+RESOURCE_GROUPS = {
+    "compute": ("fp32", "fp64", "int32", "sfu", "tensor", "fp32_int32"),
+    "memory": ("l1", "memory"),
+}
+
+
+def grouped_times(pipeline_ms: dict[str, float]) -> dict[str, float]:
+    """Group resource times without adding work with incompatible units."""
+    return {
+        group: max(
+            pipeline_ms[resource] for resource in resources if resource in pipeline_ms
+        )
+        for group, resources in RESOURCE_GROUPS.items()
+    }
+
+
+def resource_group(resource: str) -> str:
+    for group, resources in RESOURCE_GROUPS.items():
+        if resource in resources:
+            return group
+    raise ValueError(f"unknown resource: {resource}")
 
 
 def pipeline_exprs(

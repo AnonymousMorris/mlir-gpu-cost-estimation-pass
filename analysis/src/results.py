@@ -6,6 +6,7 @@ from pathlib import Path
 from statistics import median
 from typing import Any
 
+from .cost_model import RESOURCE_GROUPS, grouped_times, resource_group
 from .scheduler import Schedule
 
 
@@ -25,6 +26,15 @@ class CostResult:
     grid_size: list[int]
     schedule: Schedule
 
+    @property
+    def group_ms(self) -> dict[str, float]:
+        return grouped_times(self.pipeline_ms)
+
+    @property
+    def bound(self) -> str:
+        # Preserve the detailed predictor's tie-breaking order.
+        return resource_group(self.bottleneck)
+
 
 @dataclass(frozen=True)
 class AnalysisSkip:
@@ -39,7 +49,10 @@ def write_output(
     skips: list[AnalysisSkip],
 ) -> None:
     payload = {
-        "predictions": [asdict(row) for row in rows],
+        "predictions": [
+            {**asdict(row), "bound": row.bound, "group_ms": row.group_ms}
+            for row in rows
+        ],
         "analysis_skips": [asdict(skip) for skip in skips],
         "summary": summarize(rows, skips),
     }
@@ -50,13 +63,18 @@ def summarize(
     rows: list[CostResult],
     skips: list[AnalysisSkip],
 ) -> dict[str, Any]:
+    bound_counts = {
+        group: sum(row.bound == group for row in rows)
+        for group in RESOURCE_GROUPS
+    }
     if not rows:
-        return {"count": 0, "skip_count": len(skips)}
+        return {"count": 0, "skip_count": len(skips), "bound_counts": bound_counts}
     ratios = [row.predicted_ms / row.time_ms for row in rows if row.time_ms > 0]
     factors = [max(ratio, 1.0 / ratio) for ratio in ratios if ratio > 0]
     return {
         "count": len(rows),
         "skip_count": len(skips),
+        "bound_counts": bound_counts,
         "median_predicted_over_actual": median(ratios),
         "mean_predicted_over_actual": sum(ratios) / len(ratios),
         "median_multiplicative_error": median(factors),

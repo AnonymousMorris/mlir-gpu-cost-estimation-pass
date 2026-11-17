@@ -121,6 +121,11 @@ def test_runs_dataset_analysis_end_to_end(tmp_path: Path) -> None:
     assert payload["summary"]["skip_count"] == 0
     assert prediction["kernel"] == "add_kernel"
     assert prediction["bottleneck"] == "memory"
+    assert prediction["bound"] == "memory"
+    assert prediction["group_ms"] == {
+        "compute": 0.0, "memory": prediction["pipeline_ms"]["memory"]
+    }
+    assert payload["summary"]["bound_counts"] == {"compute": 0, "memory": 1}
     assert prediction["scheduled_work"]["memory"] == 128.0
     assert prediction["predicted_ms"] > 0
     assert (output_dir / "cost_prediction_scatter.png").is_file()
@@ -176,6 +181,11 @@ def test_reports_shared_execution_bottleneck(tmp_path: Path) -> None:
     assert prediction["scheduled_work"]["fp32"] == 128
     assert prediction["scheduled_work"]["int32"] == 64
     assert prediction["bottleneck"] == "fp32_int32"
+    assert prediction["bound"] == "compute"
+    assert prediction["group_ms"] == {
+        "compute": prediction["pipeline_ms"]["fp32_int32"], "memory": 0.0
+    }
+    assert payload["summary"]["bound_counts"] == {"compute": 1, "memory": 0}
     assert prediction["pipeline_ms"]["fp32_int32"] > prediction["pipeline_ms"]["fp32"]
     assert "fp32_int32" not in prediction["category_expressions"]
     assert "expression" not in prediction
@@ -200,6 +210,8 @@ def test_binds_runtime_arguments_in_symbolic_costs(tmp_path: Path) -> None:
 
     prediction = payload["predictions"][0]
     assert prediction["scheduled_work"]["tensor"] == 8_388_608.0
+    assert prediction["bound"] == "compute"
+    assert prediction["group_ms"]["compute"] == prediction["pipeline_ms"]["tensor"]
 
     del record["scalar_args"]
     _, missing_payload, _ = run_analysis(

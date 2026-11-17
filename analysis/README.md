@@ -408,13 +408,27 @@ issue limits yet. The prediction output records the scheduling model, inputs,
 block count, and wave count. Future Python scheduling policies can therefore
 replace this model without changing or rerunning the static operation analysis.
 
-The predicted bottleneck is the category with the largest time. Total predicted
-runtime is:
+Reports primarily classify predictions as **compute-bound** or **memory-bound**,
+while preserving the limiting resource and all individual resource times:
 
 ```text
-launch overhead + max(fp32, fp64, int32, sfu, tensor, l1, memory,
-                      optional fp32_int32 resource time)
+compute time = max(fp32, fp64, int32, sfu, tensor,
+                   optional fp32_int32 resource time)
+memory time = max(l1, memory)
+predicted runtime = launch overhead + max(compute time, memory time)
 ```
+
+Grouping happens after conversion to milliseconds, never by adding instruction
+counts, FLOPs, or bytes. It does not change predicted runtimes or the existing
+resource-level `bottleneck`. The primary `bound` is the group containing that
+resource; exact ties follow the existing resource selection order. Launch
+overhead is not included in either group time, and the bound describes modeled
+resource demand, not a measured bottleneck (or whether launch overhead dominates).
+The existing overlap assumptions are unchanged.
+
+Plots label `l1` as **shared memory** and `memory` as **global memory**. The
+original keys remain unchanged in the pass interface, configuration, and detailed
+JSON fields; `l1` is not a general L1-cache traffic estimate.
 
 Hardware rates and utilization factors come from `gpu_spec.json`. The Python
 implementation is split by responsibility:
@@ -440,16 +454,21 @@ prediction contains:
 - `schedule`: scheduler model, launch inputs, block count, and wave count
 - `pipeline_ms`: estimated time for each category and the optional `fp32_int32`
   shared-resource constraint
-- `bottleneck`: the category with the largest estimated time
+- `group_ms`: compute and memory times, each the maximum of its resource times
+- `bound`: primary `compute` or `memory` classification
+- `bottleneck`: detailed resource with the largest estimated time (unchanged)
 - `predicted_ms` and `time_ms`: predicted and measured runtime
+
+The summary also includes `bound_counts`, counting compute-bound and memory-bound
+predictions across all successful records, including those excluded from plots.
 
 Generated figures are stored in `output/` by default:
 
 - `output/cost_prediction_scatter.png`: measured runtime on the x-axis and
   predicted runtime on the y-axis, colored by kernel with marker shapes for
-  predicted bottlenecks
-- `output/cost_pipeline_counts.png`: number of configurations assigned to each
-  bottleneck category, stacked and colored by kernel
+  compute-bound (circle) versus memory-bound (triangle) predictions
+- `output/cost_pipeline_counts.png`: compute/memory-bound counts followed by the
+  detailed limiting-resource counts, stacked and colored by kernel
 
 Both axes of the scatter plot use logarithmic scales. Its solid diagonal marks
 perfect agreement, and the dashed diagonals show the 2x error boundary.

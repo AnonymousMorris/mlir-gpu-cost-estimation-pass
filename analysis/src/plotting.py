@@ -7,20 +7,12 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 import matplotlib.pyplot as plt
 
-from .cost_model import RESOURCES
+from .cost_model import RESOURCES, RESOURCE_GROUPS
 from .results import CostResult
 
 
-BOTTLENECK_MARKERS = {
-    "fp32": "o",
-    "fp64": "P",
-    "int32": "v",
-    "fp32_int32": "h",
-    "sfu": "X",
-    "tensor": "s",
-    "l1": "D",
-    "memory": "^",
-}
+BOUND_MARKERS = {"compute": "o", "memory": "^"}
+RESOURCE_LABELS = {"l1": "shared memory", "memory": "global memory"}
 PLOT_EXCLUDED_KERNELS = frozenset({"matmul_kernel_persistent"})
 
 
@@ -70,11 +62,11 @@ def _plot_runtime_scatter(
 
     fig, ax = plt.subplots(figsize=(10, 7))
     for kernel in kernels:
-        for pipeline in RESOURCES:
+        for bound in RESOURCE_GROUPS:
             group = [
                 row
                 for row in rows
-                if row.kernel == kernel and row.bottleneck == pipeline
+                if row.kernel == kernel and row.bound == bound
             ]
             if group:
                 ax.scatter(
@@ -83,7 +75,7 @@ def _plot_runtime_scatter(
                     s=30,
                     alpha=0.78,
                     color=colors[kernel],
-                    marker=BOTTLENECK_MARKERS[pipeline],
+                    marker=BOUND_MARKERS[bound],
                     edgecolors="white",
                     linewidths=0.35,
                 )
@@ -122,8 +114,8 @@ def _plot_runtime_scatter(
     )
     ax.add_artist(kernel_legend)
     ax.legend(
-        handles=_pipeline_legend_handles(rows),
-        title="predicted bottleneck",
+        handles=_bound_legend_handles(rows),
+        title="predicted bound",
         loc="lower left",
         bbox_to_anchor=(1.02, 0.0),
         borderaxespad=0,
@@ -152,24 +144,24 @@ def _kernel_legend_handles(
     ]
 
 
-def _pipeline_legend_handles(rows: list[CostResult]) -> list[Line2D]:
-    present_pipelines = [
-        pipeline
-        for pipeline in RESOURCES
-        if any(row.bottleneck == pipeline for row in rows)
+def _bound_legend_handles(rows: list[CostResult]) -> list[Line2D]:
+    present_bounds = [
+        bound
+        for bound in RESOURCE_GROUPS
+        if any(row.bound == bound for row in rows)
     ]
     return [
         Line2D(
             [0],
             [0],
-            marker=BOTTLENECK_MARKERS[pipeline],
+            marker=BOUND_MARKERS[bound],
             linestyle="none",
-            label=pipeline,
+            label=f"{bound}-bound",
             markerfacecolor="#777777",
             markeredgecolor="white",
             markersize=7,
         )
-        for pipeline in present_pipelines
+        for bound in present_bounds
     ]
 
 
@@ -178,25 +170,37 @@ def _plot_pipeline_counts(
     colors: dict[str, tuple[float, ...]],
     path: Path,
 ) -> None:
-    bottoms = [0] * len(RESOURCES)
-    fig, ax = plt.subplots(figsize=(9, 5))
-    for kernel, color in colors.items():
-        counts = [
-            sum(
-                row.kernel == kernel and row.bottleneck == pipeline
-                for row in rows
-            )
-            for pipeline in RESOURCES
+    fig, axes = plt.subplots(
+        1, 2, figsize=(14, 5), gridspec_kw={"width_ratios": [1, 3]}
+    )
+    for ax, categories, attribute, title in (
+        (axes[0], tuple(RESOURCE_GROUPS), "bound", "Compute vs memory"),
+        (axes[1], RESOURCES, "bottleneck", "Limiting resources"),
+    ):
+        bottoms = [0] * len(categories)
+        labels = [
+            RESOURCE_LABELS.get(category, category) if attribute == "bottleneck" else category
+            for category in categories
         ]
-        ax.bar(RESOURCES, counts, bottom=bottoms, color=color, label=kernel)
-        bottoms = [bottom + count for bottom, count in zip(bottoms, counts)]
-    for index, total in enumerate(bottoms):
-        if total:
-            ax.text(index, total, str(total), ha="center", va="bottom")
-    ax.set_title("Predicted bottlenecks by kernel")
-    ax.set_xlabel("predicted bottleneck")
-    ax.set_ylabel("configuration count")
-    ax.legend(
+        for kernel, color in colors.items():
+            counts = [
+                sum(
+                    row.kernel == kernel and getattr(row, attribute) == category
+                    for row in rows
+                )
+                for category in categories
+            ]
+            ax.bar(labels, counts, bottom=bottoms, color=color, label=kernel)
+            bottoms = [bottom + count for bottom, count in zip(bottoms, counts)]
+        for index, total in enumerate(bottoms):
+            if total:
+                ax.text(index, total, str(total), ha="center", va="bottom")
+        ax.set_ylim(0, max(1, max(bottoms)) * 1.12)
+        ax.set_title(title)
+        ax.set_ylabel("configuration count")
+        ax.grid(True, axis="y", linewidth=0.4, alpha=0.3)
+    axes[1].tick_params(axis="x", labelrotation=25)
+    axes[1].legend(
         handles=[
             Patch(facecolor=color, label=kernel)
             for kernel, color in colors.items()
@@ -207,7 +211,7 @@ def _plot_pipeline_counts(
         borderaxespad=0,
         fontsize="small",
     )
-    ax.grid(True, axis="y", linewidth=0.4, alpha=0.3)
+    fig.suptitle("Predicted bottlenecks by kernel")
     fig.tight_layout()
     fig.savefig(path, dpi=180)
     plt.close(fig)
