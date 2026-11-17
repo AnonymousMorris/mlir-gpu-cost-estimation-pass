@@ -179,18 +179,20 @@ bool hasNamedTensorCost(Operation &op) {
     return NamedTensorOpCost.contains(op.getName().getStringRef());
 }
 
+static Type getCostElementType(Operation &op) {
+    // Floating comparisons produce i1, but execute according to their inputs.
+    Value value = isa<arith::CmpFOp>(op) ? op.getOperand(0) : op.getResult(0);
+    return getElementTypeOrSelf(value.getType());
+}
+
 int getCostBitWidth(Operation &op) {
-    Type type = op.getResult(0).getType();
-    if (auto shapedType = dyn_cast<ShapedType>(type)) {
-        type = shapedType.getElementType();
-    }
-    return type.getIntOrFloatBitWidth();
+    return getCostElementType(op).getIntOrFloatBitWidth();
 }
 
 bool needsCostBitWidth(llvm::StringRef costName) {
     return costName == "arith.addf" || costName == "arith.subf" ||
            costName == "arith.mulf" || costName == "arith.fma" ||
-           costName == "arith.divf";
+           costName == "arith.divf" || costName == "arith.cmpf";
 }
 
 CostType simpleCostType(Operation &op, llvm::StringRef costName) {
@@ -198,10 +200,7 @@ CostType simpleCostType(Operation &op, llvm::StringRef costName) {
         return CostType::SFU;
     }
     if (op.getNumResults() != 0) {
-        Type type = op.getResult(0).getType();
-        if (auto shapedType = dyn_cast<ShapedType>(type)) {
-            type = shapedType.getElementType();
-        }
+        Type type = getCostElementType(op);
         if (type.isIntOrIndex()) {
             return CostType::INT32;
         }
@@ -243,6 +242,13 @@ std::optional<CostVector> analyze_simple_op(CostIRBuilder &costBuilder,
     if (namedCostIt != NamedOpCosts.end()) {
         const CostSpec &cost = namedCostIt->second;
         const llvm::StringRef costName = std::get<llvm::StringRef>(cost);
+        if (costName == "arith.cmpf") {
+            auto predicate = cast<arith::CmpFOp>(op).getPredicate();
+            if (predicate == arith::CmpFPredicate::AlwaysTrue ||
+                predicate == arith::CmpFPredicate::AlwaysFalse) {
+                return costBuilder.zeroVector();
+            }
+        }
         if (costName == "arith.divf" &&
             getElementTypeOrSelf(op.getResult(0).getType()).isF32() &&
             gpu.backend == "cuda" &&

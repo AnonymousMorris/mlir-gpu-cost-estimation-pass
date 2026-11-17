@@ -40,6 +40,7 @@ inline const CostConfig NamedOpCosts = {
     {"arith.addi", "arith.addi"},
     {"arith.andi", "arith.andi"},
     {"arith.cmpi", "arith.cmpi"},
+    {"arith.cmpf", "arith.cmpf"},
     {"arith.ceildivsi", "arith.ceildivsi"},
     {"arith.ceildivui", "arith.ceildivui"},
     {"arith.divf", "arith.divf"},

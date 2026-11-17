@@ -1,0 +1,54 @@
+#blocked = #ttg.blocked<{sizePerThread = [2], threadsPerWarp = [32], warpsPerCTA = [1], order = [0]}>
+module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 1 : i32, ttg.target = "cuda:86", "ttg.threads-per-warp" = 32 : i32} {
+  tt.func public @compare_scalar(%x: f32, %y: f32, %yes: f32, %no: f32, %out: !tt.ptr<f32>) {
+    %cond = arith.cmpf ogt, %x, %y : f32
+    %value = arith.select %cond, %yes, %no : f32
+    tt.store %out, %value : !tt.ptr<f32>
+    tt.return
+  }
+
+  tt.func private @compare_tensor(%x: tensor<128xf32, #blocked>, %y: tensor<128xf32, #blocked>) {
+    %cond = arith.cmpf ogt, %x, %y : tensor<128xf32, #blocked>
+    tt.return
+  }
+
+  tt.func private @compare_self(%x: tensor<128xf32, #blocked>) {
+    %cond = arith.cmpf oeq, %x, %x : tensor<128xf32, #blocked>
+    tt.return
+  }
+
+  tt.func private @compare_integer(%x: tensor<128xi32, #blocked>, %y: tensor<128xi32, #blocked>) {
+    %cond = arith.cmpi sgt, %x, %y : tensor<128xi32, #blocked>
+    tt.return
+  }
+
+  tt.func private @compare_f64(%x: f64, %y: f64) {
+    %cond = arith.cmpf ogt, %x, %y : f64
+    tt.return
+  }
+
+  tt.func private @compare_tensor_f64(%x: tensor<128xf64, #blocked>, %y: tensor<128xf64, #blocked>) {
+    %cond = arith.cmpf ogt, %x, %y : tensor<128xf64, #blocked>
+    tt.return
+  }
+
+  tt.func private @compare_f16(%x: tensor<128xf16, #blocked>, %y: tensor<128xf16, #blocked>) {
+    %cond = arith.cmpf ogt, %x, %y : tensor<128xf16, #blocked>
+    tt.return
+  }
+
+  tt.func private @compare_bf16(%x: tensor<128xbf16, #blocked>, %y: tensor<128xbf16, #blocked>) {
+    %cond = arith.cmpf ogt, %x, %y : tensor<128xbf16, #blocked>
+    tt.return
+  }
+
+  tt.func private @compare_always_true(%x: tensor<128xf64, #blocked>, %y: tensor<128xf64, #blocked>) {
+    %cond = arith.cmpf true, %x, %y : tensor<128xf64, #blocked>
+    tt.return
+  }
+
+  tt.func private @compare_always_false(%x: tensor<128xf32, #blocked>, %y: tensor<128xf32, #blocked>) {
+    %cond = arith.cmpf false, %x, %y : tensor<128xf32, #blocked>
+    tt.return
+  }
+}

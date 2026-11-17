@@ -15,6 +15,15 @@
     "arith.addi": {"work_per_count": 1.0},
     "arith.andi": {"work_per_count": 1.0},
     "arith.cmpi": {"work_per_count": 1.0},
+    "arith.cmpf32": {"work_per_count": 1.0},
+    "arith.cmpf16": {
+      "work_per_count": null,
+      "unmodeled_reason": "FP16/BF16 comparisons need a separate lowering-specific model."
+    },
+    "arith.cmpf64": {
+      "work_per_count": null,
+      "unmodeled_reason": "FP64 comparisons need a separate lowering-specific model."
+    },
     "arith.ceildivsi": {
       "work_per_count": null,
       "unmodeled_reason": "Integer ceiling division needs lowering-specific instruction expansion."

@@ -280,6 +280,7 @@ def test_rejects_invalid_cost_weights(weight):
 @pytest.mark.parametrize("name", [
     "arith.ceildivsi", "arith.ceildivui",
     "arith.divf16", "arith.divf32", "arith.divf64",
+    "arith.cmpf16", "arith.cmpf64",
     "arith.divsi", "arith.divui", "arith.remsi", "arith.remui",
     "triton.extern.__nv_asinf", "triton_gpu.convert_layout_cost",
     "arith.extf.f16_to_f64", "arith.extf.bf16_to_f64", "arith.extf.f32_to_f64",
@@ -320,6 +321,13 @@ def test_scalar_fma_uses_one_instruction_not_two_flops():
     for width in (16, 32, 64):
         for op in ("addf", "mulf", "fma"):
             assert config["parameters"][f"arith.{op}{width}"]["work_per_count"] == 1.0
+
+
+def test_fp32_comparisons_count_one_instruction():
+    config = json.loads((ANALYSIS_ROOT / "cost_analysis_config.json").read_text())
+    assert config["parameters"]["arith.cmpf32"]["work_per_count"] == 1.0
+    assert "arith.cmpf" not in config["parameters"]
+    assert "arith.cmpf1" not in config["parameters"]
 
 
 def test_ampere_float_division_uses_an_instruction_mix():

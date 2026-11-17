@@ -141,6 +141,19 @@ if(BUILD_TESTING)
             )
 
             add_test(
+                NAME floating-point-comparison
+                COMMAND
+                    ${UV_EXECUTABLE}
+                    run
+                    --project ${CMAKE_CURRENT_SOURCE_DIR}/../analysis
+                    python
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../analysis/tests/verify_float_comparison_pass.py
+                    ${TRITON_OPT_EXECUTABLE}
+                    $<TARGET_FILE:MyPass>
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/triton/float_comparison.ttgir
+            )
+
+            add_test(
                 NAME ampere-floating-point-division
                 COMMAND
                     ${UV_EXECUTABLE}

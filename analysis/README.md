@@ -93,6 +93,32 @@ CUDA assembler lowers them to a floating conversion (`HADD2.F32`) and an
 integer shift (`SHF.L.U32`), respectively. Packing, deduplication, and fusion
 with neighboring operations are not modeled.
 
+### Floating-point comparisons
+
+`arith.cmpf` is classified by the compared operands, not its `i1` result.
+FP32 operands contribute `arith.cmpf32` work to the FP32 instruction budget;
+they never acquire an integer-comparison cost just because the result is boolean.
+Tensor comparisons scale by elements per thread and threads per block.
+
+The SM86 model counts one `FSETP` instruction-equivalent per FP32 comparison for
+all 14 nonconstant predicates: `oeq`, `one`, `ogt`, `oge`, `olt`, `ole`, `ord`,
+`ueq`, `ugt`, `uge`, `ult`, `ule`, `une`, and `uno`. Ordered/unordered NaN
+semantics are preserved by Triton's `CmpFOpConversion` to `LLVM::FCmpOp`.
+Checked SM86 PTX/SASS lowering uses a single floating comparison for each,
+sometimes with an inverted predicate at its consumer. This uses the existing
+aggregate FP32 capacity, not a separately calibrated predicate pipeline.
+
+The `true` and `false` predicates contribute zero comparison work, including
+for otherwise uncalibrated operand types. This does not erase work for nearby
+selects or stores. Self-comparisons such as `oeq x, x` are not assumed constant:
+NaN inputs still matter. General constant folding and compare/consumer fusion
+are not modeled.
+
+FP64 comparisons are correctly classified as FP64 work, with an explicit null
+`arith.cmpf64` weight until calibrated. FP16/BF16 comparisons likewise retain a
+null `arith.cmpf16` weight. Neither falls back to the FP32 unit weight, and
+`arith.cmpi` continues to use the INT32 budget.
+
 ### Ampere FP32 division
 
 For `cuda:80`, `cuda:86`, and `cuda:87`, FP32 `arith.divf` contributes an
