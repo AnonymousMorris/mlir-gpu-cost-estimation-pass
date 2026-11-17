@@ -48,9 +48,21 @@
       "work_per_count": null,
       "unmodeled_reason": "FP64 division needs a separate lowering-specific model."
     },
-    "arith.divsi": {
+    "arith.divsi32.constant.int32_cost": {"work_per_count": 1.0},
+    "arith.divsi32.runtime.int32_cost": {"work_per_count": 18.0},
+    "arith.divsi32.runtime.fp32_cost": {"work_per_count": 2.0},
+    "arith.divsi32.runtime.sfu_cost": {"work_per_count": 1.0},
+    "arith.divsi16": {
       "work_per_count": null,
-      "unmodeled_reason": "Integer division needs operand- and lowering-specific instruction expansion."
+      "unmodeled_reason": "16-bit signed division has no modeled lowering."
+    },
+    "arith.divsi32": {
+      "work_per_count": null,
+      "unmodeled_reason": "The signed i32 division model only supports Ampere cuda:80, cuda:86, and cuda:87."
+    },
+    "arith.divsi64": {
+      "work_per_count": null,
+      "unmodeled_reason": "64-bit signed division needs a separate lowering-specific model."
     },
     "arith.divui": {
       "work_per_count": null,
@@ -76,9 +88,21 @@
     "arith.maxnumf": {"work_per_count": 1.0},
     "arith.maxsi": {"work_per_count": 1.0},
     "arith.muli": {"work_per_count": 1.0},
-    "arith.remsi": {
+    "arith.remsi32.constant.int32_cost": {"work_per_count": 1.0},
+    "arith.remsi32.runtime.int32_cost": {"work_per_count": 16.0},
+    "arith.remsi32.runtime.fp32_cost": {"work_per_count": 2.0},
+    "arith.remsi32.runtime.sfu_cost": {"work_per_count": 1.0},
+    "arith.remsi16": {
       "work_per_count": null,
-      "unmodeled_reason": "Integer remainder needs operand- and lowering-specific instruction expansion."
+      "unmodeled_reason": "16-bit signed remainder has no modeled lowering."
+    },
+    "arith.remsi32": {
+      "work_per_count": null,
+      "unmodeled_reason": "The signed i32 remainder model only supports Ampere cuda:80, cuda:86, and cuda:87."
+    },
+    "arith.remsi64": {
+      "work_per_count": null,
+      "unmodeled_reason": "64-bit signed remainder needs a separate lowering-specific model."
     },
     "arith.remui": {
       "work_per_count": null,

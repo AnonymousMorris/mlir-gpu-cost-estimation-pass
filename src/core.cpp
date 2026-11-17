@@ -1,6 +1,7 @@
 #include "CostConfig.h"
 #include "CostIRBuilder.h"
 #include "Loop.h"
+#include "IntegerDivision.h"
 #include "core.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/Matchers.h"
@@ -186,13 +187,19 @@ static Type getCostElementType(Operation &op) {
 }
 
 int getCostBitWidth(Operation &op) {
-    return getCostElementType(op).getIntOrFloatBitWidth();
+    Type type = getCostElementType(op);
+    if (!type.isIntOrFloat()) {
+        op.emitError("cost analysis requires an explicit integer or floating-point bit width");
+        std::exit(EXIT_FAILURE);
+    }
+    return type.getIntOrFloatBitWidth();
 }
 
 bool needsCostBitWidth(llvm::StringRef costName) {
     return costName == "arith.addf" || costName == "arith.subf" ||
            costName == "arith.mulf" || costName == "arith.fma" ||
-           costName == "arith.divf" || costName == "arith.cmpf";
+           costName == "arith.divf" || costName == "arith.cmpf" ||
+           costName == "arith.divsi" || costName == "arith.remsi";
 }
 
 CostType simpleCostType(Operation &op, llvm::StringRef costName) {
@@ -226,6 +233,9 @@ std::optional<CostVector> analyze_tensor_op(CostIRBuilder &costBuilder,
 // return cost for ops with cost defined in costConfig. 
 std::optional<CostVector> analyze_simple_op(CostIRBuilder &costBuilder,
                                             Operation &op, const GpuSpec &gpu) {
+    if (auto cost = analyze_signed_integer_division(costBuilder, op, gpu)) {
+        return cost;
+    }
     auto simpleCostIt = SimpleOpCosts.find(op.getName().getStringRef());
     auto namedCostIt = NamedOpCosts.find(op.getName().getStringRef());
 
@@ -251,9 +261,7 @@ std::optional<CostVector> analyze_simple_op(CostIRBuilder &costBuilder,
         }
         if (costName == "arith.divf" &&
             getElementTypeOrSelf(op.getResult(0).getType()).isF32() &&
-            gpu.backend == "cuda" &&
-            (gpu.targetArch == "80" || gpu.targetArch == "86" ||
-             gpu.targetArch == "87")) {
+            gpu.isAmpere()) {
             // Ampere div.full.f32 has a guarded scaling sequence around RCP,
             // not just a reciprocal plus a multiply. Weights describe the
             // normal path; conditional subnormal rescaling is not included.

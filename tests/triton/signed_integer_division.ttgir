@@ -1,0 +1,111 @@
+#blocked = #ttg.blocked<{sizePerThread = [2], threadsPerWarp = [32], warpsPerCTA = [1], order = [0]}>
+module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 1 : i32, ttg.target = "cuda:86", "ttg.threads-per-warp" = 32 : i32} {
+  tt.func public @divide_runtime(%x: i32, %d: i32, %out: !tt.ptr<i32>) {
+    %r = arith.divsi %x, %d : i32
+    tt.store %out, %r : !tt.ptr<i32>
+    tt.return
+  }
+
+  tt.func public @remainder_runtime(%x: i32, %d: i32, %out: !tt.ptr<i32>) {
+    %r = arith.remsi %x, %d : i32
+    tt.store %out, %r : !tt.ptr<i32>
+    tt.return
+  }
+
+  tt.func private @divide_tensor(%x: tensor<128xi32, #blocked>, %d: tensor<128xi32, #blocked>) {
+    %r = arith.divsi %x, %d : tensor<128xi32, #blocked>
+    tt.return
+  }
+
+  tt.func private @remainder_tensor(%x: tensor<128xi32, #blocked>, %d: tensor<128xi32, #blocked>) {
+    %r = arith.remsi %x, %d : tensor<128xi32, #blocked>
+    tt.return
+  }
+
+  tt.func private @divide_constant(%x: i32) {
+    %d = arith.constant 8 : i32
+    %r = arith.divsi %x, %d : i32
+    tt.return
+  }
+
+  tt.func private @remainder_constant(%x: i32) {
+    %d = arith.constant 8 : i32
+    %r = arith.remsi %x, %d : i32
+    tt.return
+  }
+
+  tt.func private @divide_dense(%x: tensor<128xi32, #blocked>) {
+    %d = arith.constant dense<8> : tensor<128xi32, #blocked>
+    %r = arith.divsi %x, %d : tensor<128xi32, #blocked>
+    tt.return
+  }
+
+  tt.func private @remainder_splat(%x: tensor<128xi32, #blocked>) {
+    %d = arith.constant 8 : i32
+    %ds = tt.splat %d : i32 -> tensor<128xi32, #blocked>
+    %r = arith.remsi %x, %ds : tensor<128xi32, #blocked>
+    tt.return
+  }
+
+  tt.func private @divide_dynamic_splat(%x: tensor<128xi32, #blocked>, %d: i32) {
+    %ds = tt.splat %d : i32 -> tensor<128xi32, #blocked>
+    %r = arith.divsi %x, %ds : tensor<128xi32, #blocked>
+    tt.return
+  }
+
+  tt.func private @fold_constants() {
+    %x = arith.constant -7 : i32
+    %d = arith.constant 2 : i32
+    %q = arith.divsi %x, %d : i32
+    %r = arith.remsi %x, %d : i32
+    tt.return
+  }
+
+  tt.func private @remainder_min_negative_one() {
+    %x = arith.constant -2147483648 : i32
+    %d = arith.constant -1 : i32
+    %r = arith.remsi %x, %d : i32
+    tt.return
+  }
+
+  tt.func private @divide_i64(%x: i64, %d: i64) {
+    %r = arith.divsi %x, %d : i64
+    tt.return
+  }
+
+  tt.func private @remainder_i64(%x: i64, %d: i64) {
+    %r = arith.remsi %x, %d : i64
+    tt.return
+  }
+
+  tt.func private @divide_i16(%x: i16, %d: i16) {
+    %r = arith.divsi %x, %d : i16
+    tt.return
+  }
+
+  tt.func private @remainder_i16(%x: i16, %d: i16) {
+    %r = arith.remsi %x, %d : i16
+    tt.return
+  }
+
+  tt.func private @divide_index(%x: index, %d: index) {
+    %r = arith.divsi %x, %d : index
+    tt.return
+  }
+
+  tt.func private @unsigned_divide(%x: i32, %d: i32) {
+    %r = arith.divui %x, %d : i32
+    tt.return
+  }
+
+  tt.func private @unsigned_remainder(%x: i32, %d: i32) {
+    %r = arith.remui %x, %d : i32
+    tt.return
+  }
+
+  tt.func private @mixed_divisors(%x: tensor<4xi32, #blocked>) {
+    %d = arith.constant dense<[2, 3, 4, 5]> : tensor<4xi32, #blocked>
+    %r = arith.divsi %x, %d : tensor<4xi32, #blocked>
+    tt.return
+  }
+}

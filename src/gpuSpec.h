@@ -10,6 +10,11 @@ struct GpuSpec {
     int64_t numWarps;
     int64_t threadsPerWarp;
 
+    bool isAmpere() const {
+        return backend == "cuda" &&
+               (targetArch == "80" || targetArch == "86" || targetArch == "87");
+    }
+
     int64_t threadsPerCTA() const {
         return numWarps * threadsPerWarp;
     }

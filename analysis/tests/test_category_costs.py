@@ -281,7 +281,8 @@ def test_rejects_invalid_cost_weights(weight):
     "arith.ceildivsi", "arith.ceildivui",
     "arith.divf16", "arith.divf32", "arith.divf64",
     "arith.cmpf16", "arith.cmpf64",
-    "arith.divsi", "arith.divui", "arith.remsi", "arith.remui",
+    "arith.divsi16", "arith.divsi32", "arith.divsi64", "arith.divui",
+    "arith.remsi16", "arith.remsi32", "arith.remsi64", "arith.remui",
     "triton.extern.__nv_asinf", "triton_gpu.convert_layout_cost",
     "arith.extf.f16_to_f64", "arith.extf.bf16_to_f64", "arith.extf.f32_to_f64",
 ])
@@ -312,7 +313,7 @@ def test_unused_unmodeled_weight_does_not_reject_a_prediction():
     config = json.loads((ANALYSIS_ROOT / "cost_analysis_config.json").read_text())
     assert eval_work(
         {"int32": sympy.Integer(0)}, config, {},
-        weight_symbols=frozenset({"arith.divsi"}), runtime_symbols=frozenset(),
+        weight_symbols=frozenset({"arith.divsi64"}), runtime_symbols=frozenset(),
     ) == {"int32": 0.0}
 
 
@@ -321,6 +322,21 @@ def test_scalar_fma_uses_one_instruction_not_two_flops():
     for width in (16, 32, 64):
         for op in ("addf", "mulf", "fma"):
             assert config["parameters"][f"arith.{op}{width}"]["work_per_count"] == 1.0
+
+
+def test_signed_i32_division_uses_explicit_instruction_mixes():
+    config = json.loads((ANALYSIS_ROOT / "cost_analysis_config.json").read_text())
+    for operation, integer_work in (("divsi", 18.0), ("remsi", 16.0)):
+        expected = {
+            "constant.int32_cost": 1.0,
+            "runtime.int32_cost": integer_work,
+            "runtime.fp32_cost": 2.0,
+            "runtime.sfu_cost": 1.0,
+        }
+        for suffix, value in expected.items():
+            name = f"arith.{operation}32.{suffix}"
+            assert config["parameters"][name]["work_per_count"] == value
+        assert f"arith.{operation}" not in config["parameters"]
 
 
 def test_fp32_comparisons_count_one_instruction():

@@ -44,6 +44,7 @@ add_llvm_library(
     core.cpp
     triton.cpp
     Reduction.cpp
+    IntegerDivision.cpp
     CostIRBuilder.cpp
     Loop.cpp
 
@@ -138,6 +139,19 @@ if(BUILD_TESTING)
                     ${TRITON_OPT_EXECUTABLE}
                     $<TARGET_FILE:MyPass>
                     ${CMAKE_CURRENT_SOURCE_DIR}/../tests/triton/shared_element_widths.ttgir
+            )
+
+            add_test(
+                NAME ampere-signed-integer-division
+                COMMAND
+                    ${UV_EXECUTABLE}
+                    run
+                    --project ${CMAKE_CURRENT_SOURCE_DIR}/../analysis
+                    python
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../analysis/tests/verify_integer_division_pass.py
+                    ${TRITON_OPT_EXECUTABLE}
+                    $<TARGET_FILE:MyPass>
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/triton/signed_integer_division.ttgir
             )
 
             add_test(

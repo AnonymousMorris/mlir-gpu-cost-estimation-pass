@@ -48,9 +48,10 @@ name `arith.fma32` (or `16`/`64`).
 
 Weights are explicit work multipliers in the result category's unit. Operations
 whose expansion or communication cost has not been modeled must not silently
-receive weight 1. The checked-in configuration marks integer division/remainder
-(including ceiling division), unmodeled floating-division variants, external
-`__nv_asinf`, and generic layout conversion with `work_per_count: null` and an
+receive weight 1. The checked-in configuration marks unmodeled integer
+widths/targets, unsigned and ceiling division/remainder, unmodeled floating-division
+variants, external `__nv_asinf`, and generic layout conversion with
+`work_per_count: null` and an
 `unmodeled_reason`. If their symbols occur in the evaluated equations, analysis
 records a skip with that reason.
 
@@ -156,6 +157,64 @@ FP64 division (`arith.divf64`), FP16/BF16 division (`arith.divf16`), and FP32
 division outside the supported Ampere targets (`arith.divf32`) retain explicit
 null weights. Unsupported variants cannot inherit the FP32/SFU mix implicitly.
 The old untyped `arith.divf` configuration parameter has been replaced.
+
+### Ampere signed i32 division and remainder
+
+`arith.divsi` and `arith.remsi` have a dedicated per-lane model for i32 on
+`cuda:80`, `cuda:86`, and `cuda:87`. Tensor/block scaling remains unchanged.
+The pass distinguishes compile-time scalar/dense-splat divisors (including
+`tt.splat` of a scalar constant) from runtime or nonuniform tensor divisors.
+Recorded runtime argument values are not mistaken for compiler constants.
+
+Constant divisors contribute only INT32 work:
+
+| Divisor | Division instructions/value | Remainder instructions/value |
+|---|---:|---:|
+| `1` | 0 | 0 |
+| `-1` | 1 (negation, valid inputs) | 0 |
+| `2` / `-2` | 2 / 3 | 3 |
+| `2^k` / `-2^k`, `k > 1` | 3 / 4 | 4 |
+| `INT_MIN` | 2 (compare/select) | 4 |
+| Other constants | Magic multiply-high, shift, rounding correction | Same quotient sequence plus fused multiply/subtract |
+
+Signed powers of two include bias for truncation toward zero; they are not
+modeled as a single arithmetic shift. General constants use LLVM's
+`SignedDivisionByConstantInfo`, not a hand-written magic-number algorithm.
+The estimated fused Ampere quotient count is `2 + (shift != 0)`, plus one for
+negative-divisor/positive-magic numerator correction. Remainder uses the positive
+magnitude's quotient sequence plus one `IMAD` for `x - q*d`, independent of the
+divisor's sign. The `*.constant.int32_cost` weights are per-instruction multipliers
+(default 1), not one instruction per division. Fully constant scalar/splat inputs
+fold to zero runtime arithmetic work after checking invalid cases.
+
+Runtime divisors use this conservative valid-input instruction mix:
+
+| Operation | INT32 work/value | FP32 work/value | SFU work/value |
+|---|---:|---:|---:|
+| Signed i32 division | 18 | 2 | 1 |
+| Signed i32 remainder | 16 | 2 | 1 |
+
+The weights are `arith.divsi32.runtime.{int32,fp32,sfu}_cost` and the corresponding
+`arith.remsi32` names. Checked SM80/SM86/SM87 lowering goes through LLVM `sdiv` /
+`srem` to PTX `div.s32` / `rem.s32`; SASS includes `IABS`, integer refinement,
+comparisons/corrections, `I2F`, `MUFU.RCP`, and `F2I`. Both conversions use the
+existing FP32 budget as a throughput proxy. The integer counts conservatively
+include predicated quotient/remainder corrections and sign restoration; they
+are not a measured latency or a total-instruction upper bound.
+
+Known zero divisors, including a zero lane in a constant tensor, are rejected.
+Statically visible `INT_MIN / -1` quotient overflow is also rejected; remainder
+by `-1` is modeled as zero, including `INT_MIN % -1`. Runtime estimates assume
+valid operands; the model does not prove all runtime preconditions. It does not
+model register/constant moves, sharing between adjacent quotient/remainder ops,
+known-positive operand ranges, exact-division flags, or uniform-warp execution
+savings. Nonuniform constant tensors conservatively use the runtime mix.
+
+Other widths and targets retain explicit null typed weights such as
+`arith.divsi64`, `arith.remsi64`, or (outside Ampere) `arith.divsi32` /
+`arith.remsi32`. Index-typed division is rejected rather than assuming an i32
+width. Unsigned and ceiling operations remain uncalibrated. The old
+untyped `arith.divsi` and `arith.remsi` configuration weights have been removed.
 
 ### Memory and reduction work
 
@@ -365,8 +424,9 @@ Old six-result cost functions are rejected by the analyzer.
 - Removed ignored fields: parameter `pipeline`, `defaults`, `operation_paths`,
   `memory_bytes_per_count`, and `l1_bytes_per_count`.
 - Resource assignment remains in C++; JSON weights only scale work.
-- Unmodeled integer division/remainder, floating-division variants, external
-  asin, and layout-conversion weights are null until explicitly calibrated. Runs may therefore report more skips than
+- Unmodeled integer widths/targets, unsigned/ceiling division/remainder,
+  floating-division variants, external asin, and layout-conversion weights are
+  null until explicitly calibrated. Runs may therefore report more skips than
   older versions that assigned them placeholder weight 1.
 - Prediction JSON no longer includes the legacy `expression = Max(work...)`
   field, which compared incompatible units. Use `category_expressions` instead.

@@ -131,7 +131,7 @@ def test_records_unmodeled_cost_as_a_skip(tmp_path: Path) -> None:
     cost_mlir = COST_MLIR.replace(
         "func.func @__cost_expr()",
         'func.func @__cost_expr(%weight: f64 '
-        '{cost.kind = "weight", cost.name = "arith.divsi"})',
+        '{cost.kind = "weight", cost.name = "arith.divsi64"})',
     ).replace(
         "return %zero, %zero, %zero, %zero, %zero, %zero, %memory",
         "return %zero, %zero, %weight, %zero, %zero, %zero, %memory",
@@ -149,7 +149,7 @@ def test_records_unmodeled_cost_as_a_skip(tmp_path: Path) -> None:
     assert payload["predictions"] == []
     assert payload["summary"]["skip_count"] == 1
     reason = payload["analysis_skips"][0]["reason"]
-    assert "unmodeled cost weight arith.divsi" in reason
+    assert "unmodeled cost weight arith.divsi64" in reason
     assert "Set an explicit work_per_count" in reason
 
 
