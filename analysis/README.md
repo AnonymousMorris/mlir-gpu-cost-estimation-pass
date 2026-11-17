@@ -46,12 +46,24 @@ while 512 tensor multiply-accumulates require one ideal cycle at 1024 FLOPs/SM/c
 The registered MLIR FMA operation is `math.fma`; its weight retains the historical
 name `arith.fma32` (or `16`/`64`).
 
-Weights are explicit work multipliers in the result category's unit. They can
-approximate instruction expansion, but current defaults are one: integer
-division, FP16 packing, 64-bit integer operations, compiler fusion, external
-functions, shuffles, and layout conversions remain coarse proxies. Layout
-conversion and shuffle proxies still consume the FP32 instruction budget; their
-physical communication paths are not inferred yet.
+Weights are explicit work multipliers in the result category's unit. Operations
+whose expansion or communication cost has not been modeled must not silently
+receive weight 1. The checked-in configuration marks division/remainder
+(including ceiling division), external `__nv_asinf`, and generic layout
+conversion with `work_per_count: null` and an `unmodeled_reason`. If their symbols
+occur in the evaluated equations, analysis records a skip with that reason.
+
+To opt into a calibrated approximation, replace the null with an explicit finite,
+nonnegative `work_per_count` in `cost_analysis_config.json`. This is a deliberate
+model choice, not automatic fallback. Layout-conversion proxies still consume
+the FP32 instruction budget; supplying a weight does not infer their physical
+communication path. FP16 packing, 64-bit integer operations, compiler fusion,
+and reduction shuffles remain coarse approximations.
+
+Unsupported IR operations are different from uncalibrated symbolic costs:
+the C++ pass rejects them for scalar and tensor operands alike, including inside
+nested regions. Explicit zero-cost entries (such as constants and shape-only
+broadcasts) remain supported; an absent handler never means zero cost.
 
 Global-memory payloads are scaled by their element types: for example, FP16
 values contribute two bytes per element and FP32 values contribute four. This
@@ -259,6 +271,9 @@ Old six-result cost functions are rejected by the analyzer.
 - Removed ignored fields: parameter `pipeline`, `defaults`, `operation_paths`,
   `memory_bytes_per_count`, and `l1_bytes_per_count`.
 - Resource assignment remains in C++; JSON weights only scale work.
+- Unmodeled division/remainder, external asin, and layout-conversion weights are
+  null until explicitly calibrated. Runs may therefore report more skips than
+  older versions that assigned them placeholder weight 1.
 - Prediction JSON no longer includes the legacy `expression = Max(work...)`
   field, which compared incompatible units. Use `category_expressions` instead.
 

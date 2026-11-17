@@ -1,0 +1,28 @@
+#blocked = #ttg.blocked<{sizePerThread = [1], threadsPerWarp = [32], warpsPerCTA = [1], order = [0]}>
+module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 1 : i32, ttg.target = "cuda:86", "ttg.threads-per-warp" = 32 : i32} {
+  tt.func public @unsupported_scalar(%x: f32) -> f32 {
+    %y = arith.negf %x : f32
+    tt.return %y : f32
+  }
+
+  tt.func public @unsupported_tensor(%x: tensor<32xf32, #blocked>) -> tensor<32xf32, #blocked> {
+    %y = arith.negf %x : tensor<32xf32, #blocked>
+    tt.return %y : tensor<32xf32, #blocked>
+  }
+
+  tt.func public @unsupported_reduction_combiner(%x: tensor<32xf32, #blocked>) -> f32 {
+    %y = "tt.reduce"(%x) ({
+    ^bb0(%lhs: f32, %rhs: f32):
+      %neg = arith.negf %lhs : f32
+      %sum = arith.addf %neg, %rhs : f32
+      tt.reduce.return %sum : f32
+    }) {axis = 0 : i32} : (tensor<32xf32, #blocked>) -> f32
+    tt.return %y : f32
+  }
+
+  tt.func public @explicit_zero() -> tensor<32xf32, #blocked> {
+    %x = arith.constant dense<0.0> : tensor<1xf32, #blocked>
+    %y = tt.broadcast %x : tensor<1xf32, #blocked> -> tensor<32xf32, #blocked>
+    tt.return %y : tensor<32xf32, #blocked>
+  }
+}

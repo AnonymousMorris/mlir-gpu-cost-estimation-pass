@@ -127,6 +127,32 @@ def test_runs_dataset_analysis_end_to_end(tmp_path: Path) -> None:
     assert (output_dir / "cost_pipeline_counts.png").is_file()
 
 
+def test_records_unmodeled_cost_as_a_skip(tmp_path: Path) -> None:
+    cost_mlir = COST_MLIR.replace(
+        "func.func @__cost_expr()",
+        'func.func @__cost_expr(%weight: f64 '
+        '{cost.kind = "weight", cost.name = "arith.divsi"})',
+    ).replace(
+        "return %zero, %zero, %zero, %zero, %zero, %zero, %memory",
+        "return %zero, %zero, %weight, %zero, %zero, %zero, %memory",
+    )
+    _, payload, _ = run_analysis(
+        tmp_path,
+        cost_mlir,
+        {"divide_kernel": [{
+            "status": "ok",
+            "ttgir_filename": "divide.ttgir",
+            "grid_size": [1],
+            "time_ms": 0.01,
+        }]},
+    )
+    assert payload["predictions"] == []
+    assert payload["summary"]["skip_count"] == 1
+    reason = payload["analysis_skips"][0]["reason"]
+    assert "unmodeled cost weight arith.divsi" in reason
+    assert "Set an explicit work_per_count" in reason
+
+
 def test_reports_shared_execution_bottleneck(tmp_path: Path) -> None:
     mixed_mlir = COST_MLIR.replace(
         "%memory = arith.constant 1.280000e+02 : f64",

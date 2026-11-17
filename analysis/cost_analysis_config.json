@@ -15,19 +15,40 @@
     "arith.addi": {"work_per_count": 1.0},
     "arith.andi": {"work_per_count": 1.0},
     "arith.cmpi": {"work_per_count": 1.0},
-    "arith.ceildivsi": {"work_per_count": 1.0},
-    "arith.ceildivui": {"work_per_count": 1.0},
-    "arith.divf": {"work_per_count": 1.0},
-    "arith.divsi": {"work_per_count": 1.0},
-    "arith.divui": {"work_per_count": 1.0},
+    "arith.ceildivsi": {
+      "work_per_count": null,
+      "unmodeled_reason": "Integer ceiling division needs lowering-specific instruction expansion."
+    },
+    "arith.ceildivui": {
+      "work_per_count": null,
+      "unmodeled_reason": "Integer ceiling division needs lowering-specific instruction expansion."
+    },
+    "arith.divf": {
+      "work_per_count": null,
+      "unmodeled_reason": "Floating-point division needs type- and lowering-specific instruction expansion."
+    },
+    "arith.divsi": {
+      "work_per_count": null,
+      "unmodeled_reason": "Integer division needs operand- and lowering-specific instruction expansion."
+    },
+    "arith.divui": {
+      "work_per_count": null,
+      "unmodeled_reason": "Integer division needs operand- and lowering-specific instruction expansion."
+    },
     "arith.extsi": {"work_per_count": 1.0},
     "arith.extui": {"work_per_count": 1.0},
     "arith.minsi": {"work_per_count": 1.0},
     "arith.maxnumf": {"work_per_count": 1.0},
     "arith.maxsi": {"work_per_count": 1.0},
     "arith.muli": {"work_per_count": 1.0},
-    "arith.remsi": {"work_per_count": 1.0},
-    "arith.remui": {"work_per_count": 1.0},
+    "arith.remsi": {
+      "work_per_count": null,
+      "unmodeled_reason": "Integer remainder needs operand- and lowering-specific instruction expansion."
+    },
+    "arith.remui": {
+      "work_per_count": null,
+      "unmodeled_reason": "Integer remainder needs operand- and lowering-specific instruction expansion."
+    },
     "arith.select": {"work_per_count": 1.0},
     "arith.shrui": {"work_per_count": 1.0},
     "arith.sitofp": {"work_per_count": 1.0},
@@ -42,14 +63,20 @@
     "vector.extract": {"work_per_count": 1.0},
     "vector.extract_strided_slice": {"work_per_count": 1.0},
     "triton.dot_cost": {"work_per_count": 1.0},
-    "triton.extern.__nv_asinf": {"work_per_count": 1.0},
+    "triton.extern.__nv_asinf": {
+      "work_per_count": null,
+      "unmodeled_reason": "The external asin implementation is not a single SFU instruction."
+    },
     "triton.load_cost": {"work_per_count": 1.0},
     "triton.store_cost": {"work_per_count": 1.0},
     "triton.addptr_cost": {"work_per_count": 1.0},
     "triton.make_range_cost": {"work_per_count": 1.0},
     "triton.splat_cost": {"work_per_count": 1.0},
     "triton.reduce_shuffle_cost": {"work_per_count": 1.0},
-    "triton_gpu.convert_layout_cost": {"work_per_count": 1.0},
+    "triton_gpu.convert_layout_cost": {
+      "work_per_count": null,
+      "unmodeled_reason": "Layout conversion needs a layout-sensitive communication model or an explicit proxy."
+    },
     "triton_gpu.local_alloc_cost": {"work_per_count": 1.0},
     "triton_gpu.local_load_cost": {"work_per_count": 1.0},
     "arith.addf16": {"work_per_count": 1.0},

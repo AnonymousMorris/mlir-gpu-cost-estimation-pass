@@ -277,6 +277,42 @@ def test_rejects_invalid_cost_weights(weight):
         )
 
 
+@pytest.mark.parametrize("name", [
+    "arith.ceildivsi", "arith.ceildivui", "arith.divf",
+    "arith.divsi", "arith.divui", "arith.remsi", "arith.remui",
+    "triton.extern.__nv_asinf", "triton_gpu.convert_layout_cost",
+])
+def test_unmodeled_costs_require_explicit_calibration(name):
+    config = json.loads((ANALYSIS_ROOT / "cost_analysis_config.json").read_text())
+    parameter = config["parameters"][name]
+    assert parameter["work_per_count"] is None
+    assert parameter["unmodeled_reason"]
+
+    with pytest.raises(ValueError, match="unmodeled cost weight") as error:
+        eval_work(
+            {"fp32": 4 * sympy.Symbol(name)}, config, {},
+            weight_symbols=frozenset({name}), runtime_symbols=frozenset(),
+        )
+    assert name in str(error.value)
+    assert parameter["unmodeled_reason"] in str(error.value)
+
+    # Explicit calibration is allowed; this test value is not a hardware claim.
+    parameter["work_per_count"] = 8.0
+    work = eval_work(
+        {"fp32": 4 * sympy.Symbol(name)}, config, {},
+        weight_symbols=frozenset({name}), runtime_symbols=frozenset(),
+    )
+    assert work["fp32"] == 32.0
+
+
+def test_unused_unmodeled_weight_does_not_reject_a_prediction():
+    config = json.loads((ANALYSIS_ROOT / "cost_analysis_config.json").read_text())
+    assert eval_work(
+        {"int32": sympy.Integer(0)}, config, {},
+        weight_symbols=frozenset({"arith.divsi"}), runtime_symbols=frozenset(),
+    ) == {"int32": 0.0}
+
+
 def test_scalar_fma_uses_one_instruction_not_two_flops():
     config = json.loads((ANALYSIS_ROOT / "cost_analysis_config.json").read_text())
     for width in (16, 32, 64):

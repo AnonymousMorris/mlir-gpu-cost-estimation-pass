@@ -38,8 +38,8 @@ CostVector analyze_BB(CostIRBuilder &costBuilder, Block &BB,
 CostVector analyze_region(CostIRBuilder &costBuilder, Region &region,
                           const GpuSpec &gpu);
 CostVector analyze_memory_op(CostIRBuilder &costBuilder, Operation &op);
-std::optional<CostVector> analyze_op(CostIRBuilder &costBuilder, Operation &op,
-                                     const GpuSpec &gpu);
+CostVector analyze_op(CostIRBuilder &costBuilder, Operation &op,
+                      const GpuSpec &gpu);
 std::optional<CostVector> analyze_simple_op(CostIRBuilder &costBuilder,
                                             Operation &op, const GpuSpec &gpu);
 static bool hasTensorType(Operation &op);
@@ -109,16 +109,13 @@ CostVector analyze_BB(CostIRBuilder &costBuilder, Block &BB,
     llvm::SmallVector<CostVector, 10> opCosts;
     // iterate over ops in basic block and sum
     for (auto &op : BB) {
-        auto cost = analyze_op(costBuilder, op, gpu);
-        if (cost) {
-            opCosts.push_back(cost.value());
-        }
+        opCosts.push_back(analyze_op(costBuilder, op, gpu));
     }
     return costBuilder.sumCosts(opCosts);
 }
 
-std::optional<CostVector> analyze_op(CostIRBuilder &costBuilder, Operation &op,
-                                     const GpuSpec &gpu) {
+CostVector analyze_op(CostIRBuilder &costBuilder, Operation &op,
+                      const GpuSpec &gpu) {
     // SCF Loop Op
     if (auto forOp = dyn_cast<scf::ForOp>(op)) {
         return analyze_for_op(costBuilder, forOp, gpu);
@@ -149,14 +146,16 @@ std::optional<CostVector> analyze_op(CostIRBuilder &costBuilder, Operation &op,
         return analyze_function(costBuilder, *callee, gpu);
     }
 
-    // GPU Tensor/TTGIR op
+    // Both dispatch paths must produce an explicit cost, including zero.
+    // An empty optional means unsupported, never an instruction to skip the op.
+    std::optional<CostVector> cost;
     if (hasTensorType(op) || hasNamedTensorCost(op)) {
-        return analyze_tensor_op(costBuilder, op, gpu);
+        cost = analyze_tensor_op(costBuilder, op, gpu);
+    } else {
+        cost = analyze_simple_op(costBuilder, op, gpu);
     }
-
-    // Other Basic Ops with cost defined in costConfig.h
-    if (auto cost = analyze_simple_op(costBuilder, op, gpu)) {
-        return cost;
+    if (cost) {
+        return *cost;
     }
 
     op.emitError("unknown op in cost analysis: ")

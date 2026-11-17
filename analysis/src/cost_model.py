@@ -92,6 +92,12 @@ def eval_work(
         parameter = configured_weights.get(name, {})
         if "work_per_count" not in parameter:
             raise ValueError(f"missing work_per_count for cost weight: {name}")
+        if parameter["work_per_count"] is None:
+            reason = parameter.get("unmodeled_reason", "no cost model or calibrated weight")
+            raise ValueError(
+                f"unmodeled cost weight {name}: {reason} "
+                "Set an explicit work_per_count to use a calibrated approximation."
+            )
         weight = float(parameter["work_per_count"])
         if not math.isfinite(weight) or weight < 0:
             raise ValueError(f"cost weight {name} must be finite and nonnegative")
