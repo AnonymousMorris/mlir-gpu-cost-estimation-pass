@@ -26,6 +26,7 @@
 #include <mlir/IR/Operation.h>
 #include <mlir/IR/SymbolTable.h>
 #include <mlir/IR/Types.h>
+#include <mlir/IR/TypeUtilities.h>
 #include <mlir/Support/LLVM.h>
 #include <optional>
 #include <variant>
@@ -239,6 +240,19 @@ std::optional<CostVector> analyze_simple_op(CostIRBuilder &costBuilder,
     if (namedCostIt != NamedOpCosts.end()) {
         const CostSpec &cost = namedCostIt->second;
         const llvm::StringRef costName = std::get<llvm::StringRef>(cost);
+        if (costName == "arith.extf") {
+            // On Ampere, bf16 -> f32 is a bit shift; f16 -> f32 is a
+            // floating conversion. Keep both formats in the weight name.
+            Type srcType = getElementTypeOrSelf(op.getOperand(0).getType());
+            Type dstType = getElementTypeOrSelf(op.getResult(0).getType());
+            std::string typedName;
+            llvm::raw_string_ostream name(typedName);
+            name << costName << "." << srcType << "_to_" << dstType;
+            CostType category = srcType.isBF16() && dstType.isF32()
+                                    ? CostType::INT32 : CostType::FP32;
+            return costBuilder.costVector(
+                category, costBuilder.addCostArgument(name.str()));
+        }
         if (needsCostBitWidth(costName)) {
             int bitWidth = getCostBitWidth(op);
             std::string costNameWithBits =

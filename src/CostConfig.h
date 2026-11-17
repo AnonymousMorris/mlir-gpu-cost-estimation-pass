@@ -21,6 +21,10 @@ inline const CostConfig SimpleOpCosts = {
     {"tt.get_program_id", 0.0},
     {"tt.reduce.return", 0.0},
     {"tt.return", 0.0},
+    // Verified same-width reinterpretation lowers to an LLVM bitcast.
+    {"tt.bitcast", 0.0},
+    // TTGIR transpose preserves register ownership; movement is in convert_layout.
+    {"tt.trans", 0.0},
     {"ttg.async_commit_group", 0.0},
     {"ttg.async_wait", 0.0},
     {"ttg.local_dealloc", 0.0},
@@ -41,6 +45,7 @@ inline const CostConfig NamedOpCosts = {
     {"arith.divf", "arith.divf"},
     {"arith.divsi", "arith.divsi"},
     {"arith.divui", "arith.divui"},
+    {"arith.extf", "arith.extf"},
     {"arith.extsi", "arith.extsi"},
     {"arith.extui", "arith.extui"},
     {"math.fma", "arith.fma"},

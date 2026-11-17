@@ -65,6 +65,33 @@ the C++ pass rejects them for scalar and tensor operands alike, including inside
 nested regions. Explicit zero-cost entries (such as constants and shape-only
 broadcasts) remain supported; an absent handler never means zero cost.
 
+### Structural views and floating-point extension
+
+- `tt.bitcast` is zero-cost register reinterpretation. Triton's verifier enforces
+  matching scalar bit widths, or pointer-to-pointer casts in the same address
+  space, as well as tensor shape/encoding compatibility.
+- `tt.trans` is zero-cost at the TTGIR boundary: it permutes shape and encoding
+  without changing register ownership. Surrounding `ttg.convert_layout` operations
+  retain their separate cost and still require calibration.
+- `arith.extf` has source/destination-specific weights, not a generic unit cost.
+  `arith.extf.f16_to_f32` counts one floating conversion per value in the FP32
+  instruction budget. `arith.extf.bf16_to_f32` counts one integer shift per value
+  in the INT32 budget. Both scale by elements per thread and threads per block.
+  The FP32 budget is a coarse conversion-throughput proxy, not a measured
+  dedicated conversion-pipeline rate.
+- Extensions to FP64 have explicit null weights until calibrated. Other
+  unconfigured type pairs fail weight lookup rather than receiving cost 1.
+  Conversion to FP64 is not automatically charged at FP64 arithmetic throughput.
+
+These rules follow Triton's `BitcastOp::verify` in
+`lib/Dialect/Triton/IR/Ops.cpp`, `TransOpConversion` in
+`lib/Conversion/TritonGPUToLLVM/ViewOpToLLVM.cpp`, and the elementwise
+`LLVM::BitcastOp` / `LLVM::FPExtOp` conversions. SM86 lowering of the live scalar
+extension fixtures produces `cvt.f32.f16` and `cvt.f32.bf16` in PTX; the checked
+CUDA assembler lowers them to a floating conversion (`HADD2.F32`) and an
+integer shift (`SHF.L.U32`), respectively. Packing, deduplication, and fusion
+with neighboring operations are not modeled.
+
 Global-memory payloads are scaled by their element types: for example, FP16
 values contribute two bytes per element and FP32 values contribute four. This
 is logical payload accounting; masks, cache lines, alignment, coalescing, and

@@ -141,6 +141,19 @@ if(BUILD_TESTING)
             )
 
             add_test(
+                NAME triton-views-and-float-extensions
+                COMMAND
+                    ${UV_EXECUTABLE}
+                    run
+                    --project ${CMAKE_CURRENT_SOURCE_DIR}/../analysis
+                    python
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../analysis/tests/verify_views_extensions_pass.py
+                    ${TRITON_OPT_EXECUTABLE}
+                    $<TARGET_FILE:MyPass>
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/triton/views_and_extensions.ttgir
+            )
+
+            add_test(
                 NAME unsupported-operations-fail
                 COMMAND
                     ${UV_EXECUTABLE}

@@ -35,6 +35,20 @@
       "work_per_count": null,
       "unmodeled_reason": "Integer division needs operand- and lowering-specific instruction expansion."
     },
+    "arith.extf.f16_to_f32": {"work_per_count": 1.0},
+    "arith.extf.bf16_to_f32": {"work_per_count": 1.0},
+    "arith.extf.f16_to_f64": {
+      "work_per_count": null,
+      "unmodeled_reason": "FP64 extension needs a lowering-specific conversion weight in the FP32 instruction budget."
+    },
+    "arith.extf.bf16_to_f64": {
+      "work_per_count": null,
+      "unmodeled_reason": "FP64 extension needs a lowering-specific conversion weight in the FP32 instruction budget."
+    },
+    "arith.extf.f32_to_f64": {
+      "work_per_count": null,
+      "unmodeled_reason": "FP64 extension needs a lowering-specific conversion weight in the FP32 instruction budget."
+    },
     "arith.extsi": {"work_per_count": 1.0},
     "arith.extui": {"work_per_count": 1.0},
     "arith.minsi": {"work_per_count": 1.0},

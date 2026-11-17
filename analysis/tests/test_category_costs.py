@@ -281,6 +281,7 @@ def test_rejects_invalid_cost_weights(weight):
     "arith.ceildivsi", "arith.ceildivui", "arith.divf",
     "arith.divsi", "arith.divui", "arith.remsi", "arith.remui",
     "triton.extern.__nv_asinf", "triton_gpu.convert_layout_cost",
+    "arith.extf.f16_to_f64", "arith.extf.bf16_to_f64", "arith.extf.f32_to_f64",
 ])
 def test_unmodeled_costs_require_explicit_calibration(name):
     config = json.loads((ANALYSIS_ROOT / "cost_analysis_config.json").read_text())
@@ -318,6 +319,12 @@ def test_scalar_fma_uses_one_instruction_not_two_flops():
     for width in (16, 32, 64):
         for op in ("addf", "mulf", "fma"):
             assert config["parameters"][f"arith.{op}{width}"]["work_per_count"] == 1.0
+
+
+def test_native_float_extensions_count_one_instruction():
+    config = json.loads((ANALYSIS_ROOT / "cost_analysis_config.json").read_text())
+    for name in ("arith.extf.f16_to_f32", "arith.extf.bf16_to_f32"):
+        assert config["parameters"][name]["work_per_count"] == 1.0
 
 
 def test_memory_parameters_do_not_rescale_emitted_byte_counts():
