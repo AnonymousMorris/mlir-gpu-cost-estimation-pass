@@ -23,9 +23,21 @@
       "work_per_count": null,
       "unmodeled_reason": "Integer ceiling division needs lowering-specific instruction expansion."
     },
-    "arith.divf": {
+    "arith.divf32.fp32_cost": {"work_per_count": 7.0},
+    "arith.divf32.sfu_cost": {"work_per_count": 1.0},
+    "arith.reciprocal32.fp32_cost": {"work_per_count": 6.0},
+    "arith.reciprocal32.sfu_cost": {"work_per_count": 1.0},
+    "arith.divf16": {
       "work_per_count": null,
-      "unmodeled_reason": "Floating-point division needs type- and lowering-specific instruction expansion."
+      "unmodeled_reason": "FP16/BF16 division has no modeled lowering."
+    },
+    "arith.divf32": {
+      "work_per_count": null,
+      "unmodeled_reason": "The FP32 division instruction-mix model only supports Ampere cuda:80, cuda:86, and cuda:87."
+    },
+    "arith.divf64": {
+      "work_per_count": null,
+      "unmodeled_reason": "FP64 division needs a separate lowering-specific model."
     },
     "arith.divsi": {
       "work_per_count": null,

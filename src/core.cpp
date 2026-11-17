@@ -3,6 +3,8 @@
 #include "Loop.h"
 #include "core.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
+#include "mlir/IR/Matchers.h"
+#include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
@@ -187,7 +189,8 @@ int getCostBitWidth(Operation &op) {
 
 bool needsCostBitWidth(llvm::StringRef costName) {
     return costName == "arith.addf" || costName == "arith.subf" ||
-           costName == "arith.mulf" || costName == "arith.fma";
+           costName == "arith.mulf" || costName == "arith.fma" ||
+           costName == "arith.divf";
 }
 
 CostType simpleCostType(Operation &op, llvm::StringRef costName) {
@@ -240,6 +243,29 @@ std::optional<CostVector> analyze_simple_op(CostIRBuilder &costBuilder,
     if (namedCostIt != NamedOpCosts.end()) {
         const CostSpec &cost = namedCostIt->second;
         const llvm::StringRef costName = std::get<llvm::StringRef>(cost);
+        if (costName == "arith.divf" &&
+            getElementTypeOrSelf(op.getResult(0).getType()).isF32() &&
+            gpu.backend == "cuda" &&
+            (gpu.targetArch == "80" || gpu.targetArch == "86" ||
+             gpu.targetArch == "87")) {
+            // Ampere div.full.f32 has a guarded scaling sequence around RCP,
+            // not just a reciprocal plus a multiply. Weights describe the
+            // normal path; conditional subnormal rescaling is not included.
+            Value numerator = op.getOperand(0);
+            if (auto splat = numerator.getDefiningOp<triton::SplatOp>()) {
+                numerator = splat.getSrc();
+            }
+            bool reciprocal = matchPattern(numerator, m_OneFloat());
+            llvm::StringRef fp32Weight = reciprocal
+                ? "arith.reciprocal32.fp32_cost" : "arith.divf32.fp32_cost";
+            llvm::StringRef sfuWeight = reciprocal
+                ? "arith.reciprocal32.sfu_cost" : "arith.divf32.sfu_cost";
+            return costBuilder.add(
+                costBuilder.costVector(CostType::FP32,
+                                       costBuilder.addCostArgument(fp32Weight)),
+                costBuilder.costVector(CostType::SFU,
+                                       costBuilder.addCostArgument(sfuWeight)));
+        }
         if (costName == "arith.extf") {
             // On Ampere, bf16 -> f32 is a bit shift; f16 -> f32 is a
             // floating conversion. Keep both formats in the weight name.

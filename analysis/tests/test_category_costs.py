@@ -278,7 +278,8 @@ def test_rejects_invalid_cost_weights(weight):
 
 
 @pytest.mark.parametrize("name", [
-    "arith.ceildivsi", "arith.ceildivui", "arith.divf",
+    "arith.ceildivsi", "arith.ceildivui",
+    "arith.divf16", "arith.divf32", "arith.divf64",
     "arith.divsi", "arith.divui", "arith.remsi", "arith.remui",
     "triton.extern.__nv_asinf", "triton_gpu.convert_layout_cost",
     "arith.extf.f16_to_f64", "arith.extf.bf16_to_f64", "arith.extf.f32_to_f64",
@@ -319,6 +320,19 @@ def test_scalar_fma_uses_one_instruction_not_two_flops():
     for width in (16, 32, 64):
         for op in ("addf", "mulf", "fma"):
             assert config["parameters"][f"arith.{op}{width}"]["work_per_count"] == 1.0
+
+
+def test_ampere_float_division_uses_an_instruction_mix():
+    config = json.loads((ANALYSIS_ROOT / "cost_analysis_config.json").read_text())
+    expected = {
+        "arith.divf32.fp32_cost": 7.0,
+        "arith.divf32.sfu_cost": 1.0,
+        "arith.reciprocal32.fp32_cost": 6.0,
+        "arith.reciprocal32.sfu_cost": 1.0,
+    }
+    for name, work in expected.items():
+        assert config["parameters"][name]["work_per_count"] == work
+    assert "arith.divf" not in config["parameters"]
 
 
 def test_native_float_extensions_count_one_instruction():

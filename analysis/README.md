@@ -48,10 +48,11 @@ name `arith.fma32` (or `16`/`64`).
 
 Weights are explicit work multipliers in the result category's unit. Operations
 whose expansion or communication cost has not been modeled must not silently
-receive weight 1. The checked-in configuration marks division/remainder
-(including ceiling division), external `__nv_asinf`, and generic layout
-conversion with `work_per_count: null` and an `unmodeled_reason`. If their symbols
-occur in the evaluated equations, analysis records a skip with that reason.
+receive weight 1. The checked-in configuration marks integer division/remainder
+(including ceiling division), unmodeled floating-division variants, external
+`__nv_asinf`, and generic layout conversion with `work_per_count: null` and an
+`unmodeled_reason`. If their symbols occur in the evaluated equations, analysis
+records a skip with that reason.
 
 To opt into a calibrated approximation, replace the null with an explicit finite,
 nonnegative `work_per_count` in `cost_analysis_config.json`. This is a deliberate
@@ -91,6 +92,46 @@ extension fixtures produces `cvt.f32.f16` and `cvt.f32.bf16` in PTX; the checked
 CUDA assembler lowers them to a floating conversion (`HADD2.F32`) and an
 integer shift (`SHF.L.U32`), respectively. Packing, deduplication, and fusion
 with neighboring operations are not modeled.
+
+### Ampere FP32 division
+
+For `cuda:80`, `cuda:86`, and `cuda:87`, FP32 `arith.divf` contributes an
+instruction mix to both FP32 and SFU work. It does not use a single generic
+division weight:
+
+| Case | FP32 instructions/value | SFU instructions/value |
+|---|---:|---:|
+| General `x / y` | 7 | 1 |
+| Statically known `1 / y` | 6 | 1 |
+
+The four weights are `arith.divf32.fp32_cost`, `arith.divf32.sfu_cost`,
+`arith.reciprocal32.fp32_cost`, and `arith.reciprocal32.sfu_cost`.
+Scalar constants, dense splat constants, and `tt.splat` of scalar one identify
+the reciprocal case. A dynamic numerator, even if its runtime value happens to
+be one, uses the general model. Existing work for the `tt.splat` itself is
+unchanged. All components scale by elements per thread and threads per block.
+
+Triton's `FDivOpConversion` lowers both cases to `llvm.nvvm.div.full` /
+`div.full.f32`, not just an unchecked reciprocal instruction. The checked
+SM80/SM86/SM87 SASS expansions contain:
+
+- General division: 2 `FSETP`, 3 unconditional `FMUL`, 2 `FSEL`, 1 `MUFU.RCP`.
+- Reciprocal: 2 `FSETP`, 2 unconditional `FMUL`, 2 `FSEL`, 1 `MUFU.RCP`.
+
+This is a **normal-path throughput approximation**, not a latency or exact
+instruction-issue model. FP32 work groups the floating comparisons/selects with
+arithmetic. Two additional predicated `FMUL` instructions for subnormal-range
+rescaling are not counted. Register/constant materialization, compiler
+constant-denominator strength reduction, fusion, and common-subexpression
+elimination are also not modeled. Do not treat these counts as an upper bound
+for exceptional inputs or as a measured division latency.
+
+FP64 division (`arith.divf64`), FP16/BF16 division (`arith.divf16`), and FP32
+division outside the supported Ampere targets (`arith.divf32`) retain explicit
+null weights. Unsupported variants cannot inherit the FP32/SFU mix implicitly.
+The old untyped `arith.divf` configuration parameter has been replaced.
+
+### Memory and reduction work
 
 Global-memory payloads are scaled by their element types: for example, FP16
 values contribute two bytes per element and FP32 values contribute four. This
@@ -298,8 +339,8 @@ Old six-result cost functions are rejected by the analyzer.
 - Removed ignored fields: parameter `pipeline`, `defaults`, `operation_paths`,
   `memory_bytes_per_count`, and `l1_bytes_per_count`.
 - Resource assignment remains in C++; JSON weights only scale work.
-- Unmodeled division/remainder, external asin, and layout-conversion weights are
-  null until explicitly calibrated. Runs may therefore report more skips than
+- Unmodeled integer division/remainder, floating-division variants, external
+  asin, and layout-conversion weights are null until explicitly calibrated. Runs may therefore report more skips than
   older versions that assigned them placeholder weight 1.
 - Prediction JSON no longer includes the legacy `expression = Max(work...)`
   field, which compared incompatible units. Use `category_expressions` instead.

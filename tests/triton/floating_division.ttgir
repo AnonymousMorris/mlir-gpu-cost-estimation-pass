@@ -1,0 +1,54 @@
+#blocked = #ttg.blocked<{sizePerThread = [2], threadsPerWarp = [32], warpsPerCTA = [1], order = [0]}>
+module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 1 : i32, ttg.target = "cuda:86", "ttg.threads-per-warp" = 32 : i32} {
+  tt.func public @divide_scalar(%x: f32, %y: f32, %out: !tt.ptr<f32>) {
+    %z = arith.divf %x, %y : f32
+    tt.store %out, %z : !tt.ptr<f32>
+    tt.return
+  }
+
+  tt.func public @reciprocal_scalar(%y: f32, %out: !tt.ptr<f32>) {
+    %one = arith.constant 1.0 : f32
+    %z = arith.divf %one, %y : f32
+    tt.store %out, %z : !tt.ptr<f32>
+    tt.return
+  }
+
+  tt.func private @divide_tensor(%x: tensor<128xf32, #blocked>, %y: tensor<128xf32, #blocked>) {
+    %z = arith.divf %x, %y : tensor<128xf32, #blocked>
+    tt.return
+  }
+
+  tt.func private @reciprocal_tensor(%y: tensor<128xf32, #blocked>) {
+    %one = arith.constant dense<1.0> : tensor<128xf32, #blocked>
+    %z = arith.divf %one, %y : tensor<128xf32, #blocked>
+    tt.return
+  }
+
+  tt.func private @reciprocal_splat(%y: tensor<128xf32, #blocked>) {
+    %one = arith.constant 1.0 : f32
+    %ones = tt.splat %one : f32 -> tensor<128xf32, #blocked>
+    %z = arith.divf %ones, %y : tensor<128xf32, #blocked>
+    tt.return
+  }
+
+  tt.func private @nonunit_numerator(%y: tensor<128xf32, #blocked>) {
+    %two = arith.constant dense<2.0> : tensor<128xf32, #blocked>
+    %z = arith.divf %two, %y : tensor<128xf32, #blocked>
+    tt.return
+  }
+
+  tt.func private @divide_f64(%x: f64, %y: f64) {
+    %z = arith.divf %x, %y : f64
+    tt.return
+  }
+
+  tt.func private @divide_tensor_f64(%x: tensor<128xf64, #blocked>, %y: tensor<128xf64, #blocked>) {
+    %z = arith.divf %x, %y : tensor<128xf64, #blocked>
+    tt.return
+  }
+
+  tt.func private @divide_f16(%x: f16, %y: f16) {
+    %z = arith.divf %x, %y : f16
+    tt.return
+  }
+}
