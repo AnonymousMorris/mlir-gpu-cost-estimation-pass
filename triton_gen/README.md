@@ -30,6 +30,10 @@ For lower-noise timings, increase the benchmark duration per kernel configuratio
 uv run main.py --warmup-ms 500 --rep-ms 5000
 ```
 
+Durations are integer milliseconds: `--warmup-ms` must be nonnegative and
+`--rep-ms` must be positive. `--help` works without importing Torch, Triton, or
+the kernel modules.
+
 Or, if you installed with pip:
 
 ```bash
@@ -68,6 +72,22 @@ emit 8 additional records. On an RTX 3060, 155 oversized matmul configurations
 are expected to be recorded as `skipped` because their shared-memory
 requirement exceeds the hardware limit. The remaining 536 cases produce
 timings and TTGIR files.
+
+## Code organization
+
+- `main.py`: CLI parsing and delegation; GPU dependencies load only after parsing.
+- `benchmarking/runner.py`: sweep iteration, resume checks, and checkpointing.
+  `run_case()` benchmarks one case and writes its TTGIR, returning a
+  `KernelRunRecord`; only GPU resource exhaustion is recorded as `skipped`.
+  Benchmark timings use the named `BenchmarkResult` dataclass.
+- `benchmarking/records.py`: launch metadata and the output record schema.
+- `benchmarking/storage.py`: atomic JSON writes, checkpoint loading, and TTGIR
+  output. A frozen `OutputPaths` value selects the output directory, defaulting
+  to `results/` relative to the working directory. Programmatic callers can pass
+  `paths=OutputPaths(Path("other-results"))` to `run_sweep()`.
+
+Run the CPU-compatible unit tests with `uv run pytest -q`. Runner tests mock GPU
+execution and use isolated temporary output directories.
 
 ## Adding Kernels
 

@@ -10,41 +10,59 @@ from kernels import grouped_gemm
 class ResumeStateTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
-        self.original_result_path = storage.RESULT_PATH
-        self.original_resume_path = storage.RESUME_PATH
-        root = Path(self.temp_dir.name)
-        storage.RESULT_PATH = root / "result.json"
-        storage.RESUME_PATH = root / "run_state.json.tmp"
+        self.paths = storage.OutputPaths(Path(self.temp_dir.name))
 
     def tearDown(self):
-        storage.RESULT_PATH = self.original_result_path
-        storage.RESUME_PATH = self.original_resume_path
         self.temp_dir.cleanup()
 
     def test_resume_state_round_trip(self):
         result = {"add_kernel": [{"args": ["4096"], "kwargs": {"BLOCK_SIZE": "1024"}}]}
 
-        storage.save_resume_state(result, ["add_kernel"], 100, 1000, 0, 1)
-        state = storage.load_resume_state(["add_kernel"], 100, 1000)
+        storage.save_resume_state(
+            result, ["add_kernel"], 100, 1000, 0, 1, paths=self.paths
+        )
+        state = storage.load_resume_state(["add_kernel"], 100, 1000, paths=self.paths)
 
         self.assertEqual(state["result"], result)
         self.assertEqual(state["next_kernel_index"], 0)
         self.assertEqual(state["next_case_index"], 1)
-        self.assertFalse(storage.RESUME_PATH.with_name("run_state.json.tmp.new").exists())
+        self.assertFalse(self.paths.resume_path.with_suffix(".tmp.new").exists())
 
     def test_resume_state_rejects_changed_run_settings(self):
-        storage.save_resume_state({}, ["add_kernel"], 100, 1000, 0, 0)
+        storage.save_resume_state(
+            {}, ["add_kernel"], 100, 1000, 0, 0, paths=self.paths
+        )
 
         with self.assertRaisesRegex(RuntimeError, "rep_ms"):
-            storage.load_resume_state(["add_kernel"], 100, 2000)
+            storage.load_resume_state(["add_kernel"], 100, 2000, paths=self.paths)
+
+    def test_output_paths_keep_independent_runs_isolated(self):
+        other_paths = storage.OutputPaths(self.paths.root / "other")
+        storage.write_result({"first": []}, paths=self.paths)
+        storage.write_result({"second": []}, paths=other_paths)
+        storage.write_ttgir("kernel", "first module", paths=self.paths)
+        storage.write_ttgir("kernel", "second module", paths=other_paths)
+        storage.save_resume_state(
+            {}, ["add_kernel"], 100, 1000, 0, 0, paths=self.paths
+        )
+
+        self.assertIn('"first"', self.paths.result_path.read_text())
+        self.assertIn('"second"', other_paths.result_path.read_text())
+        self.assertEqual(
+            (self.paths.ttgir_dir / "kernel.ttgir").read_text(), "first module"
+        )
+        self.assertEqual(
+            (other_paths.ttgir_dir / "kernel.ttgir").read_text(), "second module"
+        )
+        self.assertFalse(other_paths.resume_path.exists())
 
     def test_final_result_is_written_atomically(self):
         result = {"add_kernel": []}
 
-        storage.write_result(result)
+        storage.write_result(result, paths=self.paths)
 
-        self.assertEqual(storage.RESULT_PATH.read_text(), '{\n  "add_kernel": []\n}')
-        self.assertFalse(storage.RESULT_PATH.with_name("result.json.new").exists())
+        self.assertEqual(self.paths.result_path.read_text(), '{\n  "add_kernel": []\n}')
+        self.assertFalse(self.paths.result_path.with_suffix(".json.new").exists())
 
 
 class GroupedGemmLifetimeTests(unittest.TestCase):

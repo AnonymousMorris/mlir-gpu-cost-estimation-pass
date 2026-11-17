@@ -1,12 +1,29 @@
+from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
 import re
 
 
-RESULT_PATH = Path("results/result.json")
-RESUME_PATH = Path("results/run_state.json.tmp")
-TTGIR_DIR = Path("results/ttgir")
+@dataclass(frozen=True)
+class OutputPaths:
+    """Sweep artifacts under one root, relative to the working directory by default."""
+
+    root: Path = Path("results")
+
+    @property
+    def result_path(self) -> Path:
+        return self.root / "result.json"
+
+    @property
+    def resume_path(self) -> Path:
+        return self.root / "run_state.json.tmp"
+
+    @property
+    def ttgir_dir(self) -> Path:
+        return self.root / "ttgir"
+
+
 RESUME_VERSION = 2
 
 
@@ -20,8 +37,8 @@ def atomic_write_json(path, value):
     os.replace(pending_path, path)
 
 
-def write_result(result):
-    atomic_write_json(RESULT_PATH, result)
+def write_result(result, *, paths: OutputPaths = OutputPaths()):
+    atomic_write_json(paths.result_path, result)
 
 
 def save_resume_state(
@@ -31,9 +48,11 @@ def save_resume_state(
     rep_ms,
     next_kernel_index,
     next_case_index,
+    *,
+    paths: OutputPaths = OutputPaths(),
 ):
     atomic_write_json(
-        RESUME_PATH,
+        paths.resume_path,
         {
             "version": RESUME_VERSION,
             "kernel_names": kernel_names,
@@ -46,8 +65,10 @@ def save_resume_state(
     )
 
 
-def load_resume_state(kernel_names, warmup_ms, rep_ms):
-    if not RESUME_PATH.exists():
+def load_resume_state(
+    kernel_names, warmup_ms, rep_ms, *, paths: OutputPaths = OutputPaths()
+):
+    if not paths.resume_path.exists():
         return {
             "next_kernel_index": 0,
             "next_case_index": 0,
@@ -55,10 +76,10 @@ def load_resume_state(kernel_names, warmup_ms, rep_ms):
         }
 
     try:
-        state = json.loads(RESUME_PATH.read_text())
+        state = json.loads(paths.resume_path.read_text())
     except (OSError, json.JSONDecodeError) as exc:
         raise RuntimeError(
-            f"Cannot read {RESUME_PATH}; use --restart to discard it"
+            f"Cannot read {paths.resume_path}; use --restart to discard it"
         ) from exc
 
     expected = {
@@ -87,15 +108,15 @@ def load_resume_state(kernel_names, warmup_ms, rep_ms):
     )
     if not valid_cursor or not isinstance(result, dict):
         raise RuntimeError(
-            f"Invalid resume state in {RESUME_PATH}; use --restart to discard it"
+            f"Invalid resume state in {paths.resume_path}; use --restart to discard it"
         )
 
     return state
 
 
-def write_ttgir(name, ttgir):
-    TTGIR_DIR.mkdir(parents=True, exist_ok=True)
+def write_ttgir(name, ttgir, *, paths: OutputPaths = OutputPaths()):
+    paths.ttgir_dir.mkdir(parents=True, exist_ok=True)
     safe_name = re.sub(r"[^A-Za-z0-9_.=-]+", "_", name)
     filename = f"{safe_name}.ttgir"
-    (TTGIR_DIR / filename).write_text(ttgir)
+    (paths.ttgir_dir / filename).write_text(ttgir)
     return filename
