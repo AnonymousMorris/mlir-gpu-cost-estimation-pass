@@ -199,6 +199,9 @@ CostType simpleCostType(Operation &op, llvm::StringRef costName) {
         if (auto shapedType = dyn_cast<ShapedType>(type)) {
             type = shapedType.getElementType();
         }
+        if (type.isIntOrIndex()) {
+            return CostType::INT32;
+        }
         if (auto floatType = dyn_cast<FloatType>(type);
             floatType && floatType.getWidth() == 64) {
             return CostType::FP64;

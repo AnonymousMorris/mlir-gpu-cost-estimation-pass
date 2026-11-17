@@ -14,6 +14,7 @@ using namespace mlir;
 enum class CostType {
     FP32,
     FP64,
+    INT32,
     SFU,
     TENSOR,
     L1,

@@ -8,6 +8,7 @@ from src.scheduler import schedule_work
 CATEGORIES = {
     "fp32": 10.0,
     "fp64": 0.0,
+    "int32": 3.0,
     "sfu": 2.0,
     "tensor": 4.0,
     "l1": 8.0,

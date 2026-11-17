@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -29,6 +30,7 @@ CATEGORY_COST_MLIR = """func.func @__cost_expr(
 ) -> (
   f64 {cost.name = "fp32"},
   f64 {cost.name = "fp64"},
+  f64 {cost.name = "int32"},
   f64 {cost.name = "sfu"},
   f64 {cost.name = "tensor"},
   f64 {cost.name = "l1"},
@@ -37,13 +39,14 @@ CATEGORY_COST_MLIR = """func.func @__cost_expr(
   %c0 = arith.constant 0.000000e+00 : f64
   %c2 = arith.constant 2.000000e+00 : f64
   %fp32 = arith.mulf %arith.addf32, %c2 : f64
-  return %fp32, %c0, %math.exp, %triton.dot_cost, %triton_gpu.local_load_cost, %triton.load_cost : f64, f64, f64, f64, f64, f64
+  return %fp32, %c0, %c0, %math.exp, %triton.dot_cost, %triton_gpu.local_load_cost, %triton.load_cost : f64, f64, f64, f64, f64, f64, f64
 }"""
 
 
 BLOCK_COST_MLIR = """func.func @__cost_expr() -> (
   f64 {cost.name = "fp32"},
   f64 {cost.name = "fp64"},
+  f64 {cost.name = "int32"},
   f64 {cost.name = "sfu"},
   f64 {cost.name = "tensor"},
   f64 {cost.name = "l1"},
@@ -54,13 +57,14 @@ BLOCK_COST_MLIR = """func.func @__cost_expr() -> (
   cost.work_unit = "block"
 } {
   %c0 = arith.constant 0.000000e+00 : f64
-  return %c0, %c0, %c0, %c0, %c0, %c0 : f64, f64, f64, f64, f64, f64
+  return %c0, %c0, %c0, %c0, %c0, %c0, %c0 : f64, f64, f64, f64, f64, f64, f64
 }"""
 
 
 DIVISION_COST_MLIR = """func.func @__cost_expr() -> (
   f64 {cost.name = "fp32"},
   f64 {cost.name = "fp64"},
+  f64 {cost.name = "int32"},
   f64 {cost.name = "sfu"},
   f64 {cost.name = "tensor"},
   f64 {cost.name = "l1"},
@@ -80,7 +84,7 @@ DIVISION_COST_MLIR = """func.func @__cost_expr() -> (
   %div = arith.addf %divs_f, %divu_f : f64
   %ceil = arith.addf %ceils_f, %ceilu_f : f64
   %total = arith.addf %div, %ceil : f64
-  return %total, %c0, %c0, %c0, %c0, %c0 : f64, f64, f64, f64, f64, f64
+  return %total, %c0, %c0, %c0, %c0, %c0, %c0 : f64, f64, f64, f64, f64, f64, f64
 }"""
 
 
@@ -104,7 +108,6 @@ def result(kernel: str, predicted_ms: float = 1.0) -> CostResult:
         bottleneck="memory",
         scheduled_work={pipeline: 1.0 for pipeline in PIPELINES},
         pipeline_ms={pipeline: 1.0 for pipeline in PIPELINES},
-        expression="1.0",
         category_expressions={pipeline: "1.0" for pipeline in PIPELINES},
         args=[],
         kwargs={},
@@ -121,6 +124,7 @@ def test_builds_one_equation_for_each_named_cost_result():
     assert equations == {
         "fp32": 2.0 * sympy.Symbol("arith.addf32"),
         "fp64": sympy.Float(0),
+        "int32": sympy.Float(0),
         "sfu": sympy.Symbol("math.exp"),
         "tensor": sympy.Symbol("triton.dot_cost"),
         "l1": sympy.Symbol("triton_gpu.local_load_cost"),
@@ -208,7 +212,7 @@ def test_evaluates_runtime_symbols_separately_from_cost_weights():
 
     work = eval_work(
         expressions,
-        {"defaults": {"ops_per_count": 1.0}},
+        {},
         {"K": 256},
         weight_symbols=frozenset(),
         runtime_symbols=frozenset({"K"}),
@@ -232,14 +236,14 @@ def test_rejects_missing_runtime_symbol_bindings():
         )
 
 
-def test_applies_default_only_to_declared_weight_symbols():
+def test_applies_configured_weight_in_category_units():
     weight = sympy.Symbol("new.operation")
     expressions = {pipeline: sympy.Float(0) for pipeline in PIPELINES}
     expressions["fp32"] = 4 * weight
 
     work = eval_work(
         expressions,
-        {"defaults": {"ops_per_count": 2.0}},
+        {"parameters": {"new.operation": {"work_per_count": 2.0}}},
         {},
         weight_symbols=frozenset({"new.operation"}),
         runtime_symbols=frozenset(),
@@ -248,13 +252,46 @@ def test_applies_default_only_to_declared_weight_symbols():
     assert work["fp32"] == 8.0
 
 
+@pytest.mark.parametrize("parameter", [{}, {"ops_per_count": 1.0}])
+def test_rejects_missing_or_legacy_cost_weights(parameter):
+    weight = sympy.Symbol("new.operation")
+    with pytest.raises(ValueError, match="missing work_per_count"):
+        eval_work(
+            {"fp32": weight},
+            {"parameters": {"new.operation": parameter}},
+            {},
+            weight_symbols=frozenset({"new.operation"}),
+            runtime_symbols=frozenset(),
+        )
+
+
+@pytest.mark.parametrize("weight", [-1.0, float("inf"), float("nan")])
+def test_rejects_invalid_cost_weights(weight):
+    with pytest.raises(ValueError, match="finite and nonnegative"):
+        eval_work(
+            {"int32": sympy.Symbol("arith.addi")},
+            {"parameters": {"arith.addi": {"work_per_count": weight}}},
+            {},
+            weight_symbols=frozenset({"arith.addi"}),
+            runtime_symbols=frozenset(),
+        )
+
+
+def test_scalar_fma_uses_one_instruction_not_two_flops():
+    config = json.loads((ANALYSIS_ROOT / "cost_analysis_config.json").read_text())
+    for width in (16, 32, 64):
+        for op in ("addf", "mulf", "fma"):
+            assert config["parameters"][f"arith.{op}{width}"]["work_per_count"] == 1.0
+
+
 def test_memory_parameters_do_not_rescale_emitted_byte_counts():
     config = json.loads((ANALYSIS_ROOT / "cost_analysis_config.json").read_text())
 
-    assert config["parameters"]["triton.load_cost"]["ops_per_count"] == 1.0
-    assert config["parameters"]["triton.store_cost"]["ops_per_count"] == 1.0
-    assert config["parameters"]["triton_gpu.local_alloc_cost"]["ops_per_count"] == 1.0
-    assert config["parameters"]["triton_gpu.local_load_cost"]["ops_per_count"] == 1.0
+    for name in (
+        "triton.load_cost", "triton.store_cost",
+        "triton_gpu.local_alloc_cost", "triton_gpu.local_load_cost",
+    ):
+        assert config["parameters"][name]["work_per_count"] == 1.0
 
 
 def test_builds_per_sm_throughput_rates():
@@ -262,12 +299,14 @@ def test_builds_per_sm_throughput_rates():
         "sms": 30,
         "assumed_clock_ghz": 1.0,
         "memory_bandwidth_gb_s": 300.0,
-        "per_sm_ops_per_cycle": {
+        "per_sm_instructions_per_cycle": {
             "fp32": 128,
             "fp64": 2,
+            "int32": 64,
+            "fp32_int32": 128,
             "sfu": 16,
-            "tensor_tf32": 512,
         },
+        "per_sm_flops_per_cycle": {"tensor_tf32": 512},
         "per_sm_bytes_per_cycle": {"l1": 128},
         "utilization": {},
     }
@@ -276,10 +315,65 @@ def test_builds_per_sm_throughput_rates():
 
     assert rates["fp32"] == 128_000_000.0
     assert rates["fp64"] == 2_000_000.0
+    assert rates["int32"] == 64_000_000.0
+    assert rates["fp32_int32"] == 128_000_000.0
     assert rates["sfu"] == 16_000_000.0
     assert rates["tensor"] == 512_000_000.0
     assert rates["l1"] == 128_000_000.0
     assert rates["memory"] == 10_000_000.0
+
+
+@pytest.mark.parametrize(
+    ("fp32", "int32", "expected_cycles", "bottleneck"),
+    [
+        (128, 0, 1.0, "fp32"),
+        (0, 64, 1.0, "int32"),
+        (64, 64, 1.0, "int32"),
+        (128, 64, 1.5, "fp32_int32"),
+    ],
+)
+def test_ga10x_execution_capacity(fp32, int32, expected_cycles, bottleneck):
+    spec = json.loads((ANALYSIS_ROOT / "gpu_spec.json").read_text())
+    spec["assumed_clock_ghz"] = 1.0
+    spec["utilization"] = {}
+    rates = per_sm_throughput_rates(spec, {})
+    work = dict.fromkeys(PIPELINES, 0.0)
+    work.update(fp32=fp32, int32=int32)
+
+    predicted, actual_bottleneck, times = predict_ms(work, rates, 0.0)
+
+    assert predicted == pytest.approx(expected_cycles / 1_000_000)
+    assert actual_bottleneck == bottleneck
+    assert times["fp32_int32"] == pytest.approx((fp32 + int32) / 128_000_000)
+
+
+def test_architectures_without_shared_alu_capacity():
+    spec = json.loads((ANALYSIS_ROOT / "gpu_spec.json").read_text())
+    del spec["per_sm_instructions_per_cycle"]["fp32_int32"]
+    rates = per_sm_throughput_rates(spec, {})
+    assert "fp32_int32" not in rates
+    _, _, times = predict_ms(dict.fromkeys(PIPELINES, 0.0), rates, 0.0)
+    assert "fp32_int32" not in times
+
+
+def test_tensor_capacity_is_in_flops_for_selected_path():
+    spec = json.loads((ANALYSIS_ROOT / "gpu_spec.json").read_text())
+    spec["assumed_clock_ghz"] = 1.0
+    spec["utilization"] = {}
+    rates = per_sm_throughput_rates(spec, {"tensor_throughput_key": "tensor_fp16"})
+    work = dict.fromkeys(PIPELINES, 0.0)
+    work["tensor"] = 1024  # 512 multiply-accumulates.
+    predicted, bottleneck, _ = predict_ms(work, rates, 0.0)
+    assert predicted == pytest.approx(1 / 1_000_000)
+    assert bottleneck == "tensor"
+
+
+@pytest.mark.parametrize("capacity", [0, -1, float("nan"), float("inf")])
+def test_rejects_invalid_resource_capacity(capacity):
+    spec = json.loads((ANALYSIS_ROOT / "gpu_spec.json").read_text())
+    spec["per_sm_instructions_per_cycle"]["int32"] = capacity
+    with pytest.raises(ValueError, match="int32"):
+        per_sm_throughput_rates(spec, {})
 
 
 def test_predicts_l1_bottleneck():
@@ -323,11 +417,13 @@ def test_assigns_stable_distinct_colors_to_kernels():
     assert len(set(colors.values())) == 2
 
 
-def test_plot_creates_nested_plot_directory(tmp_path):
+@pytest.mark.parametrize("bottleneck", ["memory", "int32", "fp32_int32"])
+def test_plot_creates_nested_plot_directory(tmp_path, bottleneck):
     plots_dir = tmp_path / "nested" / "plots"
+    row = replace(result("add_kernel", predicted_ms=0.02), bottleneck=bottleneck)
 
     plot(
-        [result("add_kernel", predicted_ms=0.02)],
+        [row],
         plots_dir / "scatter.png",
         plots_dir / "pipelines.png",
     )

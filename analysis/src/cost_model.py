@@ -6,7 +6,10 @@ from typing import Any
 import sympy
 
 
-PIPELINES = ("fp32", "fp64", "sfu", "tensor", "l1", "memory")
+# Scalar categories use per-lane instruction-equivalents; tensor uses FLOPs;
+# l1 and memory use bytes. The shared resource has no separate work equation.
+PIPELINES = ("fp32", "fp64", "int32", "sfu", "tensor", "l1", "memory")
+RESOURCES = (*PIPELINES, "fp32_int32")
 
 
 def pipeline_exprs(
@@ -83,13 +86,16 @@ def eval_work(
             )
 
     configured_weights = config.get("parameters", {})
-    default_weight = float(config.get("defaults", {}).get("ops_per_count", 1.0))
-    weight_substitutions = {
-        sympy.Symbol(name): float(
-            configured_weights.get(name, {}).get("ops_per_count", default_weight)
-        )
-        for name in weight_symbols
-    }
+    required_weights = {str(symbol) for symbol in free_symbols} & weight_symbols
+    weight_substitutions = {}
+    for name in sorted(required_weights):
+        parameter = configured_weights.get(name, {})
+        if "work_per_count" not in parameter:
+            raise ValueError(f"missing work_per_count for cost weight: {name}")
+        weight = float(parameter["work_per_count"])
+        if not math.isfinite(weight) or weight < 0:
+            raise ValueError(f"cost weight {name} must be finite and nonnegative")
+        weight_substitutions[sympy.Symbol(name)] = weight
     substitutions = weight_substitutions | runtime_substitutions
     return {
         pipeline: float(expr.evalf(subs=substitutions))
@@ -105,39 +111,35 @@ def per_sm_throughput_rates(
     if sms <= 0:
         raise ValueError("sms must be positive")
     clock_ghz = float(spec["assumed_clock_ghz"])
-    per_sm_ops = spec.get("per_sm_ops_per_cycle", {})
-    per_sm_bytes = spec.get("per_sm_bytes_per_cycle", {})
     utilization = spec.get("utilization", {})
+    cycles_per_ms = clock_ghz * 1_000_000.0
 
-    def ops_rate(key: str, util_key: str | None = None) -> float:
-        util = float(utilization.get(util_key or key, 1.0))
-        return clock_ghz * 1_000_000.0 * float(per_sm_ops[key]) * util
+    def rate(capacity: float, key: str) -> float:
+        result = float(capacity) * float(utilization.get(key, 1.0))
+        if not math.isfinite(result) or result <= 0:
+            raise ValueError(f"effective capacity for {key} must be finite and positive")
+        return result
 
-    def bytes_rate(key: str) -> float:
-        util = float(utilization.get(key, 1.0))
-        return clock_ghz * 1_000_000.0 * float(per_sm_bytes[key]) * util
+    if not math.isfinite(cycles_per_ms) or cycles_per_ms <= 0:
+        raise ValueError("assumed_clock_ghz must be finite and positive")
 
+    instructions = spec["per_sm_instructions_per_cycle"]
     tensor_key = config.get("tensor_throughput_key", "tensor_tf32")
-    fp64_ops = per_sm_ops.get("fp64")
-    if fp64_ops is None:
-        fallback_ratio = float(
-            config.get("fp64_fallback_ratio_vs_fp32", 1.0 / 64.0)
-        )
-        fp64_ops = float(per_sm_ops["fp32"]) * fallback_ratio
-    fp64_util = float(utilization.get("fp64", utilization.get("fp32", 1.0)))
-    memory_util = float(utilization.get("memory", 1.0))
-    per_sm_memory_bandwidth = (
-        float(spec["memory_bandwidth_gb_s"]) * 1_000_000.0 * memory_util / sms
-    )
-
-    return {
-        "fp32": ops_rate("fp32"),
-        "fp64": clock_ghz * 1_000_000.0 * float(fp64_ops) * fp64_util,
-        "sfu": ops_rate("sfu"),
-        "tensor": ops_rate(tensor_key, tensor_key),
-        "l1": bytes_rate("l1"),
-        "memory": per_sm_memory_bandwidth,
+    rates = {
+        key: cycles_per_ms * rate(instructions[key], key)
+        for key in ("fp32", "fp64", "int32", "sfu")
     }
+    rates["tensor"] = cycles_per_ms * rate(
+        spec["per_sm_flops_per_cycle"][tensor_key], tensor_key
+    )
+    rates["l1"] = cycles_per_ms * rate(spec["per_sm_bytes_per_cycle"]["l1"], "l1")
+    rates["memory"] = rate(spec["memory_bandwidth_gb_s"], "memory") * 1_000_000 / sms
+    # Omit this capacity for architectures without GA10x-style sharing.
+    if "fp32_int32" in instructions:
+        rates["fp32_int32"] = cycles_per_ms * rate(
+            instructions["fp32_int32"], "fp32_int32"
+        )
+    return rates
 
 
 def predict_ms(
@@ -149,5 +151,9 @@ def predict_ms(
         pipeline: (work[pipeline] / rates[pipeline] if rates[pipeline] else math.inf)
         for pipeline in PIPELINES
     }
+    if "fp32_int32" in rates:
+        pipeline_ms["fp32_int32"] = (
+            work["fp32"] + work["int32"]
+        ) / rates["fp32_int32"]
     bottleneck = max(pipeline_ms, key=pipeline_ms.get)
     return launch_overhead_ms + pipeline_ms[bottleneck], bottleneck, pipeline_ms

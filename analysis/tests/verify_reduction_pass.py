@@ -12,12 +12,12 @@ from src.cost_pass import run_cost_pass
 from src.parse import cost_equations
 
 
-def fp32_equation(
+def arithmetic_equations(
     triton_opt: Path,
     plugin: Path,
     ttgir: Path,
     function: str,
-) -> sympy.Expr:
+) -> dict[str, sympy.Expr]:
     cost_mlir = run_cost_pass(
         triton_opt,
         plugin,
@@ -25,12 +25,12 @@ def fp32_equation(
         function,
         timeout_s=10.0,
     )
-    return cost_equations(cost_mlir)["fp32"]
+    return cost_equations(cost_mlir)
 
 
 def expect_equation(actual: sympy.Expr, expected: sympy.Expr, function: str) -> None:
     if sympy.simplify(actual - expected) != 0:
-        raise SystemExit(f"unexpected {function} FP32 expression: {actual}")
+        raise SystemExit(f"unexpected {function} arithmetic expression: {actual}")
 
 
 def main() -> None:
@@ -63,7 +63,10 @@ def main() -> None:
     }
 
     for function, expected_equation in expected.items():
-        actual = fp32_equation(triton_opt, plugin, ttgir, function)
+        equations = arithmetic_equations(triton_opt, plugin, ttgir, function)
+        actual = equations["fp32"] + equations["int32"]
+        assert addi not in equations["fp32"].free_symbols
+        assert not ({addf32, shuffle} & equations["int32"].free_symbols)
         expect_equation(actual, expected_equation, function)
 
 

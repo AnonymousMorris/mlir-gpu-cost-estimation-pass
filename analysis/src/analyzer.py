@@ -6,8 +6,6 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-import sympy
-
 from .cost_model import (
     eval_work,
     grid_program_count,
@@ -114,7 +112,6 @@ def analyze(
                 bottleneck=bottleneck,
                 scheduled_work=scheduled_work,
                 pipeline_ms=pipeline_ms,
-                expression=str(sympy.Max(*exprs.values())),
                 category_expressions={name: str(expr) for name, expr in exprs.items()},
                 args=[str(arg) for arg in record.get("args", [])],
                 kwargs={

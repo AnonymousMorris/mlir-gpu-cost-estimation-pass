@@ -18,7 +18,6 @@ class CostResult:
     bottleneck: str
     scheduled_work: dict[str, float]
     pipeline_ms: dict[str, float]
-    expression: str
     category_expressions: dict[str, str]
     args: list[str]
     kwargs: dict[str, str]

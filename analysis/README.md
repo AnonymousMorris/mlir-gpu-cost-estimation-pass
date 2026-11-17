@@ -6,35 +6,52 @@ runtime, and generates comparison plots.
 
 ## Cost function interface
 
-The pass emits one `@__cost_expr` function with six named results:
+The pass emits one `@__cost_expr` function with seven named results and explicit
+work units:
 
 ```mlir
 func.func @__cost_expr(...) -> (
-  f64 {cost.name = "fp32"},
-  f64 {cost.name = "fp64"},
-  f64 {cost.name = "sfu"},
-  f64 {cost.name = "tensor"},
-  f64 {cost.name = "l1"},
-  f64 {cost.name = "memory"}
+  f64 {cost.name = "fp32", cost.unit = "instructions"},
+  f64 {cost.name = "fp64", cost.unit = "instructions"},
+  f64 {cost.name = "int32", cost.unit = "instructions"},
+  f64 {cost.name = "sfu", cost.unit = "instructions"},
+  f64 {cost.name = "tensor", cost.unit = "flops"},
+  f64 {cost.name = "l1", cost.unit = "bytes"},
+  f64 {cost.name = "memory", cost.unit = "bytes"}
 )
 ```
 
 Symbolic function arguments are tagged by role. Operation-cost weights use
 `cost.kind = "weight"`, while kernel values used by symbolic control flow use
 `cost.kind = "runtime"`. The analyzer substitutes runtime symbols from the
-benchmark record and applies the configured default only to weight symbols.
-Missing runtime bindings are rejected instead of being evaluated as cost 1.
+benchmark record and substitutes each required weight from
+`parameters.<symbol>.work_per_count`. Missing runtime bindings, missing weights,
+and negative/nonfinite weights are rejected; there is no implicit unit-1 fallback.
 
 Each result is an independent symbolic equation:
 
-- `fp32`: FP32 arithmetic, integer arithmetic, address generation, and modeled
-  layout overhead
-- `fp64`: operations producing FP64 results
-- `sfu`: special functions, including MLIR math operations and external
-  elementwise functions such as `__nv_asinf`
-- `tensor`: tensor-core dot operations
-- `l1`: modeled on-chip shared/L1 reads and writes
-- `memory`: logical global-memory load and store payload bytes
+| Category | Work unit | Interpretation |
+|---|---|---|
+| `fp32` | Per-lane instruction-equivalents | Scalar FP arithmetic and current movement/conversion proxies |
+| `fp64` | Per-lane instruction-equivalents | Scalar FP64 arithmetic |
+| `int32` | Per-lane instruction-equivalents | Integer/index arithmetic, comparisons, ranges, and pointer arithmetic |
+| `sfu` | Per-lane instruction-equivalents | Special functions and external elementwise functions |
+| `tensor` | FLOPs | Two FLOPs per dot multiply-accumulate |
+| `l1` | Bytes | Logical shared-memory payload |
+| `memory` | Bytes | Logical global-memory payload |
+
+Scalar add, multiply, and FMA each count as **one instruction-equivalent**.
+For example, 128 scalar FMAs require one ideal cycle at 128 instructions/SM/cycle,
+while 512 tensor multiply-accumulates require one ideal cycle at 1024 FLOPs/SM/cycle.
+The registered MLIR FMA operation is `math.fma`; its weight retains the historical
+name `arith.fma32` (or `16`/`64`).
+
+Weights are explicit work multipliers in the result category's unit. They can
+approximate instruction expansion, but current defaults are one: integer
+division, FP16 packing, 64-bit integer operations, compiler fusion, external
+functions, shuffles, and layout conversions remain coarse proxies. Layout
+conversion and shuffle proxies still consume the FP32 instruction budget; their
+physical communication paths are not inferred yet.
 
 Global-memory payloads are scaled by their element types: for example, FP16
 values contribute two bytes per element and FP32 values contribute four. This
@@ -144,6 +161,35 @@ The analyzer converts scheduled work to time using per-SM category capacities:
 category time = scheduled SM work / per-SM category capacity
 ```
 
+### Rates and the GA10x shared execution constraint
+
+Hardware capacities are separated by unit:
+
+- `per_sm_instructions_per_cycle`: FP32, FP64, INT32, SFU, and the optional
+  combined `fp32_int32` execution capacity.
+- `per_sm_flops_per_cycle`: tensor paths such as `tensor_tf32` and `tensor_fp16`.
+- `per_sm_bytes_per_cycle`: shared-memory bandwidth.
+
+All capacities are multiplied by clock and the corresponding utilization factor.
+FP64 capacity is explicit, not inferred from FP32. `tensor_throughput_key` still
+selects one tensor path for the whole analysis; per-dot precision selection is
+not modeled.
+
+For GA10x, FP32-only lanes coexist with FP32/INT32-capable lanes. In addition to
+the individual resource times, the analyzer calculates:
+
+```text
+fp32_int32 time = (fp32 instructions + int32 instructions) / combined capacity
+```
+
+The RTX 3060 specification uses 128 FP32, 64 INT32, and 128 combined per-lane
+instructions/SM/cycle before utilization. Thus 128 FP32 instructions plus 64
+integer instructions require at least 1.5 ideal cycles, not one. This is an
+aggregate capacity bound, not a scheduler or latency simulator. The combined
+resource has no additional work equation and is not added to either work count.
+Omit its capacity for architectures without this sharing arrangement (do not
+apply the GA10x values to GA100).
+
 Global memory bandwidth is currently divided evenly across the GPU's SMs. This
 is an explicit simplifying assumption, not a measured per-SM hardware property.
 The L1 rate uses the configured per-SM bytes per cycle and clock. For the current
@@ -158,7 +204,8 @@ The predicted bottleneck is the category with the largest time. Total predicted
 runtime is:
 
 ```text
-launch overhead + max(fp32, fp64, sfu, tensor, l1, memory category times)
+launch overhead + max(fp32, fp64, int32, sfu, tensor, l1, memory,
+                      optional fp32_int32 resource time)
 ```
 
 Hardware rates and utilization factors come from `gpu_spec.json`. The Python
@@ -179,11 +226,12 @@ implementation under `src/`.
 The default JSON output is `output/cost_predictions.json`. Each successful
 prediction contains:
 
-- `category_expressions`: the six simplified symbolic equations
+- `category_expressions`: the seven simplified symbolic work equations
 - `scalar_args`: named numeric launch arguments used for symbolic evaluation
 - `scheduled_work`: evaluated busiest-SM work for each category
 - `schedule`: scheduler model, launch inputs, block count, and wave count
-- `pipeline_ms`: estimated time for each category
+- `pipeline_ms`: estimated time for each category and the optional `fp32_int32`
+  shared-resource constraint
 - `bottleneck`: the category with the largest estimated time
 - `predicted_ms` and `time_ms`: predicted and measured runtime
 
@@ -199,6 +247,20 @@ Both axes of the scatter plot use logarithmic scales. Its solid diagonal marks
 perfect agreement, and the dashed diagonals show the 2x error boundary.
 Persistent matmul kernels are excluded from plots until the cost analysis
 models their runtime-dependent loop iterations.
+
+## Configuration migration
+
+Rebuild the pass and regenerate predictions after changing to this contract.
+Old six-result cost functions are rejected by the analyzer.
+
+- Replace `ops_per_count` with `work_per_count`; scalar FMA weights are now 1,
+  not 2. Dot equations themselves now contain the factor of 2 for FLOPs.
+- Replace `per_sm_ops_per_cycle` with the unit-specific capacity dictionaries.
+- Removed ignored fields: parameter `pipeline`, `defaults`, `operation_paths`,
+  `memory_bytes_per_count`, and `l1_bytes_per_count`.
+- Resource assignment remains in C++; JSON weights only scale work.
+- Prediction JSON no longer includes the legacy `expression = Max(work...)`
+  field, which compared incompatible units. Use `category_expressions` instead.
 
 ## Tests
 

@@ -11,7 +11,10 @@
 namespace {
 
 constexpr std::array<llvm::StringLiteral, CostTypeCount> CostTypeNames = {
-    "fp32", "fp64", "sfu", "tensor", "l1", "memory"};
+    "fp32", "fp64", "int32", "sfu", "tensor", "l1", "memory"};
+constexpr std::array<llvm::StringLiteral, CostTypeCount> CostTypeUnits = {
+    "instructions", "instructions", "instructions", "instructions",
+    "flops", "bytes", "bytes"};
 
 } // namespace
 
@@ -32,9 +35,13 @@ CostIRBuilder::CostIRBuilder(MLIRContext *ctx)
     costFunc = func::FuncOp::create(builder, loc, "__cost_expr", funcType);
 
     llvm::SmallVector<DictionaryAttr, CostTypeCount> resultAttrs;
-    for (llvm::StringRef name : CostTypeNames) {
-        resultAttrs.push_back(builder.getDictionaryAttr(
-            {builder.getNamedAttr("cost.name", builder.getStringAttr(name))}));
+    for (size_t idx = 0; idx < CostTypeCount; ++idx) {
+        resultAttrs.push_back(builder.getDictionaryAttr({
+            builder.getNamedAttr("cost.name",
+                                 builder.getStringAttr(CostTypeNames[idx])),
+            builder.getNamedAttr("cost.unit",
+                                 builder.getStringAttr(CostTypeUnits[idx])),
+        }));
     }
     costFunc.setAllResultAttrs(resultAttrs);
 

@@ -28,6 +28,8 @@ inline const CostConfig SimpleOpCosts = {
     {"vector.shape_cast", 0.0},
 };
 
+// Scalar work is counted in per-lane instruction-equivalents, not FLOPs.
+// In particular, an FMA is one instruction. Weights may approximate expansion.
 inline const CostConfig NamedOpCosts = {
     {"arith.addf", "arith.addf"},
     {"arith.subf", "arith.subf"},
@@ -41,7 +43,7 @@ inline const CostConfig NamedOpCosts = {
     {"arith.divui", "arith.divui"},
     {"arith.extsi", "arith.extsi"},
     {"arith.extui", "arith.extui"},
-    {"arith.fma", "arith.fma"},
+    {"math.fma", "arith.fma"},
     {"arith.minsi", "arith.minsi"},
     {"arith.maxnumf", "arith.maxnumf"},
     {"arith.maxsi", "arith.maxsi"},
@@ -75,7 +77,7 @@ inline const CostConfig NamedTensorOpCost = {
     {"tt.load", "triton.load_cost"},
     // Global-memory store payload, scaled by the value element width in bytes.
     {"tt.store", "triton.store_cost"},
-    // Matrix multiply-accumulate instructions, e.g. NVIDIA mma/wgmma.
+    // Tensor arithmetic in FLOPs: two operations per multiply-accumulate.
     {"tt.dot", "triton.dot_cost"},
     // Pointer/address integer arithmetic; often folded into address generation.
     {"tt.addptr", "triton.addptr_cost"},

@@ -7,13 +7,15 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 import matplotlib.pyplot as plt
 
-from .cost_model import PIPELINES
+from .cost_model import RESOURCES
 from .results import CostResult
 
 
 BOTTLENECK_MARKERS = {
     "fp32": "o",
     "fp64": "P",
+    "int32": "v",
+    "fp32_int32": "h",
     "sfu": "X",
     "tensor": "s",
     "l1": "D",
@@ -68,7 +70,7 @@ def _plot_runtime_scatter(
 
     fig, ax = plt.subplots(figsize=(10, 7))
     for kernel in kernels:
-        for pipeline in PIPELINES:
+        for pipeline in RESOURCES:
             group = [
                 row
                 for row in rows
@@ -153,7 +155,7 @@ def _kernel_legend_handles(
 def _pipeline_legend_handles(rows: list[CostResult]) -> list[Line2D]:
     present_pipelines = [
         pipeline
-        for pipeline in PIPELINES
+        for pipeline in RESOURCES
         if any(row.bottleneck == pipeline for row in rows)
     ]
     return [
@@ -176,7 +178,7 @@ def _plot_pipeline_counts(
     colors: dict[str, tuple[float, ...]],
     path: Path,
 ) -> None:
-    bottoms = [0] * len(PIPELINES)
+    bottoms = [0] * len(RESOURCES)
     fig, ax = plt.subplots(figsize=(9, 5))
     for kernel, color in colors.items():
         counts = [
@@ -184,9 +186,9 @@ def _plot_pipeline_counts(
                 row.kernel == kernel and row.bottleneck == pipeline
                 for row in rows
             )
-            for pipeline in PIPELINES
+            for pipeline in RESOURCES
         ]
-        ax.bar(PIPELINES, counts, bottom=bottoms, color=color, label=kernel)
+        ax.bar(RESOURCES, counts, bottom=bottoms, color=color, label=kernel)
         bottoms = [bottom + count for bottom, count in zip(bottoms, counts)]
     for index, total in enumerate(bottoms):
         if total:

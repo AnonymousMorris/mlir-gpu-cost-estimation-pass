@@ -141,6 +141,20 @@ if(BUILD_TESTING)
             )
 
             add_test(
+                NAME standardized-work-units
+                COMMAND
+                    ${UV_EXECUTABLE}
+                    run
+                    --project ${CMAKE_CURRENT_SOURCE_DIR}/../analysis
+                    python
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../analysis/tests/verify_work_units_pass.py
+                    ${TRITON_OPT_EXECUTABLE}
+                    $<TARGET_FILE:MyPass>
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/triton/work_units.ttgir
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/triton/tiled_matmul.ttgir
+            )
+
+            add_test(
                 NAME triton-reduction-cost
                 COMMAND
                     ${UV_EXECUTABLE}

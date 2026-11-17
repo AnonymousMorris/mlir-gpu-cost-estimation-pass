@@ -14,6 +14,7 @@ RUNTIME_COST_MLIR = """func.func @__cost_expr(
 ) -> (
   f64 {cost.name = "fp32"},
   f64 {cost.name = "fp64"},
+  f64 {cost.name = "int32"},
   f64 {cost.name = "sfu"},
   f64 {cost.name = "tensor"},
   f64 {cost.name = "l1"},
@@ -29,13 +30,14 @@ RUNTIME_COST_MLIR = """func.func @__cost_expr(
   %iterations = arith.ceildivui %K, %tile : i32
   %iterations_f = arith.uitofp %iterations : i32 to f64
   %tensor = arith.mulf %base, %iterations_f : f64
-  return %zero, %zero, %zero, %tensor, %zero, %zero : f64, f64, f64, f64, f64, f64
+  return %zero, %zero, %zero, %zero, %tensor, %zero, %zero : f64, f64, f64, f64, f64, f64, f64
 }"""
 
 
 COST_MLIR = """func.func @__cost_expr() -> (
   f64 {cost.name = "fp32"},
   f64 {cost.name = "fp64"},
+  f64 {cost.name = "int32"},
   f64 {cost.name = "sfu"},
   f64 {cost.name = "tensor"},
   f64 {cost.name = "l1"},
@@ -47,7 +49,7 @@ COST_MLIR = """func.func @__cost_expr() -> (
 } {
   %zero = arith.constant 0.000000e+00 : f64
   %memory = arith.constant 1.280000e+02 : f64
-  return %zero, %zero, %zero, %zero, %zero, %memory : f64, f64, f64, f64, f64, f64
+  return %zero, %zero, %zero, %zero, %zero, %zero, %memory : f64, f64, f64, f64, f64, f64, f64
 }"""
 
 
@@ -123,6 +125,34 @@ def test_runs_dataset_analysis_end_to_end(tmp_path: Path) -> None:
     assert prediction["predicted_ms"] > 0
     assert (output_dir / "cost_prediction_scatter.png").is_file()
     assert (output_dir / "cost_pipeline_counts.png").is_file()
+
+
+def test_reports_shared_execution_bottleneck(tmp_path: Path) -> None:
+    mixed_mlir = COST_MLIR.replace(
+        "%memory = arith.constant 1.280000e+02 : f64",
+        "%fp32 = arith.constant 1.280000e+02 : f64\n"
+        "  %int32 = arith.constant 6.400000e+01 : f64",
+    ).replace(
+        "return %zero, %zero, %zero, %zero, %zero, %zero, %memory",
+        "return %fp32, %zero, %int32, %zero, %zero, %zero, %zero",
+    )
+    _, payload, _ = run_analysis(
+        tmp_path,
+        mixed_mlir,
+        {"mixed_kernel": [{
+            "status": "ok",
+            "ttgir_filename": "mixed.ttgir",
+            "grid_size": [1],
+            "time_ms": 0.01,
+        }]},
+    )
+    prediction = payload["predictions"][0]
+    assert prediction["scheduled_work"]["fp32"] == 128
+    assert prediction["scheduled_work"]["int32"] == 64
+    assert prediction["bottleneck"] == "fp32_int32"
+    assert prediction["pipeline_ms"]["fp32_int32"] > prediction["pipeline_ms"]["fp32"]
+    assert "fp32_int32" not in prediction["category_expressions"]
+    assert "expression" not in prediction
 
 
 def test_binds_runtime_arguments_in_symbolic_costs(tmp_path: Path) -> None:

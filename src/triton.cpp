@@ -127,7 +127,7 @@ Value analyze_triton_dot(CostIRBuilder &costBuilder, triton::DotOp dotOp,
     int64_t outputElemsPerThread = elements_per_thread(dotOp.getD());
     int64_t k = tensor_k_dim(dotOp.getA());
     return scale_cost(costBuilder, tensor_cost(*dotOp.getOperation()),
-                      outputElemsPerThread * k);
+                      2 * outputElemsPerThread * k);
 }
 
 Value analyze_triton_addptr(CostIRBuilder &costBuilder, triton::AddPtrOp addPtrOp,
@@ -242,7 +242,7 @@ std::optional<CostVector> analyze_triton_tensor_op(CostIRBuilder &costBuilder,
 
     if (auto addPtrOp = dyn_cast<triton::AddPtrOp>(op)) {
         return costBuilder.costVector(
-            CostType::FP32,
+            CostType::INT32,
             analyze_triton_addptr(costBuilder, addPtrOp, gpu));
     }
 
@@ -265,7 +265,7 @@ std::optional<CostVector> analyze_triton_tensor_op(CostIRBuilder &costBuilder,
 
     if (auto makeRangeOp = dyn_cast<triton::MakeRangeOp>(op)) {
         return costBuilder.costVector(
-            CostType::FP32,
+            CostType::INT32,
             analyze_triton_make_range(costBuilder, makeRangeOp, gpu));
     }
 
