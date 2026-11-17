@@ -24,7 +24,11 @@ def build_equations(cost_function: CostFunction) -> dict[str, sympy.Expr]:
             return equations
 
         if isinstance(op, arith.ConstantOp):
-            values[op.result] = sympy.Float(op.literal_value)
+            literal = op.literal_value
+            values[op.result] = (
+                sympy.Integer(literal) if isinstance(literal, int)
+                else sympy.Float(literal)
+            )
             continue
 
         if isinstance(op, (arith.AddFOp, arith.AddIOp)):
@@ -47,7 +51,16 @@ def build_equations(cost_function: CostFunction) -> dict[str, sympy.Expr]:
             values[op.result] = sympy.ceiling(values[op.lhs] / values[op.rhs])
             continue
 
-        if isinstance(op, (arith.IndexCastOp, arith.IndexCastUIOp, arith.ExtUIOp, arith.TruncIOp, arith.UIToFPOp)):
+        if isinstance(op, arith.ExtUIOp):
+            width = ir.IntegerType(op.operands[0].type).width
+            values[op.result] = sympy.Mod(values[op.operands[0]], 2**width)
+            continue
+
+        if isinstance(op, arith.MaxSIOp):
+            values[op.result] = sympy.Max(values[op.lhs], values[op.rhs])
+            continue
+
+        if isinstance(op, (arith.IndexCastOp, arith.IndexCastUIOp, arith.ExtSIOp, arith.TruncIOp, arith.UIToFPOp)):
             values[op.result] = values[op.operands[0]]
             continue
 

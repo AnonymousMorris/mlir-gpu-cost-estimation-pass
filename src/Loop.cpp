@@ -80,8 +80,29 @@ Value build_for_trip_count(CostIRBuilder &costBuilder, scf::ForOp forOp) {
     OpBuilder &builder = costBuilder.getBuilder();
     Location loc = costBuilder.getLoc();
 
-    Value range = arith::SubIOp::create(builder, loc, *upper, *lower);
-    return arith::CeilDivUIOp::create(builder, loc, range, *step);
+    // Widen before subtracting: even valid bounds can have a difference that
+    // overflows their original signed type. Index bounds use the 64-bit GPU
+    // index width. The extra bit also lets unsigned bounds be compared signed.
+    auto widen = [&](Value value, bool isUnsigned) -> Value {
+        if (value.getType().isIndex()) {
+            value = arith::IndexCastOp::create(builder, loc,
+                                              builder.getI64Type(), value);
+        }
+        auto type = cast<IntegerType>(value.getType());
+        Type wideType = builder.getIntegerType(type.getWidth() + 1);
+        if (isUnsigned) {
+            return arith::ExtUIOp::create(builder, loc, wideType, value);
+        }
+        return arith::ExtSIOp::create(builder, loc, wideType, value);
+    };
+    Value wideLower = widen(*lower, forOp.getUnsignedCmp());
+    Value wideUpper = widen(*upper, forOp.getUnsignedCmp());
+    Value wideStep = widen(*step, /*isUnsigned=*/true);
+    Value range = arith::SubIOp::create(builder, loc, wideUpper, wideLower);
+    Value zero = arith::ConstantOp::create(
+        builder, loc, builder.getIntegerAttr(range.getType(), 0));
+    Value nonnegativeRange = arith::MaxSIOp::create(builder, loc, range, zero);
+    return arith::CeilDivUIOp::create(builder, loc, nonnegativeRange, wideStep);
 }
 
 } // namespace

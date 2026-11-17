@@ -104,6 +104,19 @@ if(BUILD_TESTING)
         find_program(UV_EXECUTABLE NAMES uv)
         if(UV_EXECUTABLE)
             add_test(
+                NAME loop-trip-count-semantics
+                COMMAND
+                    ${UV_EXECUTABLE}
+                    run
+                    --project ${CMAKE_CURRENT_SOURCE_DIR}/../analysis
+                    python
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../analysis/tests/verify_loop_trip_counts_pass.py
+                    ${TRITON_OPT_EXECUTABLE}
+                    $<TARGET_FILE:MyPass>
+                    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/triton/loop_trip_counts.ttgir
+            )
+
+            add_test(
                 NAME shared-memory-l1-cost-routing
                 COMMAND
                     ${UV_EXECUTABLE}

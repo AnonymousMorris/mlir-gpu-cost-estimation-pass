@@ -1,0 +1,39 @@
+module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 1 : i32, ttg.target = "cuda:86", "ttg.threads-per-warp" = 32 : i32} {
+  tt.func public @signed_i32(%lower: i32 loc("lower"), %upper: i32 loc("upper"), %step: i32 loc("step")) {
+    %one = arith.constant 1 : i32
+    scf.for %i = %lower to %upper step %step : i32 {
+      %value = arith.addi %i, %one : i32
+    }
+    tt.return
+  }
+  tt.func public @signed_i64(%lower: i64 loc("lower"), %upper: i64 loc("upper"), %step: i64 loc("step")) {
+    %one = arith.constant 1 : i64
+    scf.for %i = %lower to %upper step %step : i64 {
+      %value = arith.addi %i, %one : i64
+    }
+    tt.return
+  }
+  tt.func public @index_loop(%lower: index loc("lower"), %upper: index loc("upper"), %step: index loc("step")) {
+    %one = arith.constant 1 : index
+    scf.for %i = %lower to %upper step %step {
+      %value = arith.addi %i, %one : index
+    }
+    tt.return
+  }
+  tt.func public @unsigned_i32(%lower: i32 loc("lower"), %upper: i32 loc("upper"), %step: i32 loc("step")) {
+    %one = arith.constant 1 : i32
+    scf.for unsigned %i = %lower to %upper step %step : i32 {
+      %value = arith.addi %i, %one : i32
+    }
+    tt.return
+  }
+  tt.func public @constant_empty() {
+    %five = arith.constant 5 : i32
+    %three = arith.constant 3 : i32
+    %one = arith.constant 1 : i32
+    scf.for %i = %five to %three step %one : i32 {
+      %value = arith.addi %i, %one : i32
+    }
+    tt.return
+  }
+}

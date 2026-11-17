@@ -335,6 +335,14 @@ Benchmark records containing symbolic runtime-dependent loops must include the
 named `scalar_args` metadata produced by the current `triton_gen/main.py`.
 Regenerate older benchmark data that predates this field.
 
+For valid positive-step `scf.for` loops, trip counts are
+`ceil(max(upper - lower, 0) / step)`: equal or reversed bounds execute no body
+work. Bounds are widened before subtraction to avoid signed overflow; signed,
+unsigned-comparison, and 64-bit GPU index bounds retain their comparison mode.
+The symbolic parsers support the emitted integer extension, maximum, and
+ceiling-division operations, preserving integer constants exactly until the
+final conversion to floating-point work.
+
 The analyzer uses `gpu_spec.json`, `cost_analysis_config.json`, and
 `../build/libMyPass.so`, and finds `triton-opt` on `PATH`.
 

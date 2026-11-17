@@ -24,19 +24,45 @@ def build_equations(cost_function: CostFunction) -> dict[str, sympy.Expr]:
             return equations
 
         if isinstance(op, arith.ConstantOp):
-            values[op.result] = sympy.Float(op.literal_value)
+            literal = op.literal_value
+            values[op.result] = (
+                sympy.Integer(literal) if isinstance(literal, int)
+                else sympy.Float(literal)
+            )
             continue
 
-        if isinstance(op, arith.AddFOp):
+        if isinstance(op, (arith.AddFOp, arith.AddIOp)):
             values[op.result] = values[op.lhs] + values[op.rhs]
             continue
 
-        if isinstance(op, arith.SubFOp):
+        if isinstance(op, (arith.SubFOp, arith.SubIOp)):
             values[op.result] = values[op.lhs] - values[op.rhs]
             continue
 
-        if isinstance(op, arith.MulFOp):
+        if isinstance(op, (arith.MulFOp, arith.MulIOp)):
             values[op.result] = values[op.lhs] * values[op.rhs]
+            continue
+
+        if isinstance(op, (arith.DivSIOp, arith.DivUIOp)):
+            values[op.result] = sympy.floor(values[op.lhs] / values[op.rhs])
+            continue
+
+        if isinstance(op, (arith.CeilDivSIOp, arith.CeilDivUIOp)):
+            values[op.result] = sympy.ceiling(values[op.lhs] / values[op.rhs])
+            continue
+
+        if isinstance(op, arith.ExtUIOp):
+            width = ir.IntegerType(op.operands[0].type).width
+            values[op.result] = sympy.Mod(values[op.operands[0]], 2**width)
+            continue
+
+        if isinstance(op, (arith.IndexCastOp, arith.IndexCastUIOp,
+                           arith.ExtSIOp, arith.TruncIOp, arith.UIToFPOp)):
+            values[op.result] = values[op.operands[0]]
+            continue
+
+        if isinstance(op, (arith.MaxSIOp, arith.MaximumFOp)):
+            values[op.result] = sympy.Max(values[op.lhs], values[op.rhs])
             continue
 
         raise ValueError(f"unsupported op: {op.operation.name}")
