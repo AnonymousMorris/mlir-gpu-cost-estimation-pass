@@ -16,7 +16,8 @@ RUNTIME_COST_MLIR = """func.func @__cost_expr(
   f64 {cost.name = "fp64"},
   f64 {cost.name = "int32"},
   f64 {cost.name = "sfu"},
-  f64 {cost.name = "tensor"},
+  f64 {cost.name = "tensor_fp16"},
+  f64 {cost.name = "tensor_tf32"},
   f64 {cost.name = "l1"},
   f64 {cost.name = "memory"}
 ) attributes {
@@ -30,7 +31,7 @@ RUNTIME_COST_MLIR = """func.func @__cost_expr(
   %iterations = arith.ceildivui %K, %tile : i32
   %iterations_f = arith.uitofp %iterations : i32 to f64
   %tensor = arith.mulf %base, %iterations_f : f64
-  return %zero, %zero, %zero, %zero, %tensor, %zero, %zero : f64, f64, f64, f64, f64, f64, f64
+  return %zero, %zero, %zero, %zero, %tensor, %zero, %zero, %zero : f64, f64, f64, f64, f64, f64, f64, f64
 }"""
 
 
@@ -39,7 +40,8 @@ COST_MLIR = """func.func @__cost_expr() -> (
   f64 {cost.name = "fp64"},
   f64 {cost.name = "int32"},
   f64 {cost.name = "sfu"},
-  f64 {cost.name = "tensor"},
+  f64 {cost.name = "tensor_fp16"},
+  f64 {cost.name = "tensor_tf32"},
   f64 {cost.name = "l1"},
   f64 {cost.name = "memory"}
 ) attributes {
@@ -49,7 +51,7 @@ COST_MLIR = """func.func @__cost_expr() -> (
 } {
   %zero = arith.constant 0.000000e+00 : f64
   %memory = arith.constant 1.280000e+02 : f64
-  return %zero, %zero, %zero, %zero, %zero, %zero, %memory : f64, f64, f64, f64, f64, f64, f64
+  return %zero, %zero, %zero, %zero, %zero, %zero, %zero, %memory : f64, f64, f64, f64, f64, f64, f64, f64
 }"""
 
 
@@ -138,8 +140,8 @@ def test_records_unmodeled_cost_as_a_skip(tmp_path: Path) -> None:
         'func.func @__cost_expr(%weight: f64 '
         '{cost.kind = "weight", cost.name = "arith.divsi64"})',
     ).replace(
-        "return %zero, %zero, %zero, %zero, %zero, %zero, %memory",
-        "return %zero, %zero, %weight, %zero, %zero, %zero, %memory",
+        "return %zero, %zero, %zero, %zero, %zero, %zero, %zero, %memory",
+        "return %zero, %zero, %weight, %zero, %zero, %zero, %zero, %memory",
     )
     _, payload, _ = run_analysis(
         tmp_path,
@@ -164,8 +166,8 @@ def test_reports_shared_execution_bottleneck(tmp_path: Path) -> None:
         "%fp32 = arith.constant 1.280000e+02 : f64\n"
         "  %int32 = arith.constant 6.400000e+01 : f64",
     ).replace(
-        "return %zero, %zero, %zero, %zero, %zero, %zero, %memory",
-        "return %fp32, %zero, %int32, %zero, %zero, %zero, %zero",
+        "return %zero, %zero, %zero, %zero, %zero, %zero, %zero, %memory",
+        "return %fp32, %zero, %int32, %zero, %zero, %zero, %zero, %zero",
     )
     _, payload, _ = run_analysis(
         tmp_path,
@@ -209,7 +211,15 @@ def test_binds_runtime_arguments_in_symbolic_costs(tmp_path: Path) -> None:
     )
 
     prediction = payload["predictions"][0]
-    assert prediction["scheduled_work"]["tensor"] == 8_388_608.0
+    assert prediction["scheduled_work"]["tensor_fp16"] == 8_388_608.0
+    assert prediction["scheduled_work"]["tensor_tf32"] == 0.0
+    spec = json.loads((ROOT / "gpu_spec.json").read_text())
+    fp16_rate = (
+        spec["assumed_clock_ghz"] * 1_000_000
+        * spec["per_sm_flops_per_cycle"]["tensor_fp16"]
+        * spec["utilization"]["tensor_fp16"]
+    )
+    assert prediction["pipeline_ms"]["tensor"] == 8_388_608 / fp16_rate
     assert prediction["bound"] == "compute"
     assert prediction["group_ms"]["compute"] == prediction["pipeline_ms"]["tensor"]
 

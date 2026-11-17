@@ -34,7 +34,7 @@
   "notes": [
     "Scalar ALU and SFU work uses per-lane instruction-equivalents, not FLOPs. An FMA counts as one instruction.",
     "GA10x has FP32-only lanes and FP32/INT32-capable lanes. fp32_int32 bounds their combined instruction demand; it is not an extra work category.",
-    "Tensor rates use dense FLOPs, with two FLOPs per multiply-accumulate. The selected tensor path is a model-wide setting.",
+    "Tensor rates use dense FLOPs, with two FLOPs per multiply-accumulate. Each dot selects its path from operand types and input precision; both paths share the tensor execution budget.",
     "Global-memory and shared-memory work counts logical payload bytes, not transactions.",
     "L1 approximates the shared-memory path as 32 banks times 4 bytes per cycle per SM.",
     "Rates omit dependency latency, issue limits, packing, occupancy, and instruction expansion unless approximated by configured work weights.",

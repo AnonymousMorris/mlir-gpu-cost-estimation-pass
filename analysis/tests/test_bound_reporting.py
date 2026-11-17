@@ -6,14 +6,16 @@ from pathlib import Path
 from matplotlib.figure import Figure
 import pytest
 
-from src.cost_model import PIPELINES, RESOURCES, grouped_times, predict_ms
+from src.cost_model import WORK_CATEGORIES, RESOURCES, grouped_times, predict_ms
 from src.plotting import plot
 from src.results import CostResult, summarize, write_output
 from src.scheduler import schedule_work
 
 
 def make_result(work: dict[str, float], *, shared_alu: bool = True) -> CostResult:
-    rates = dict.fromkeys(RESOURCES if shared_alu else PIPELINES, 1.0)
+    rates = dict.fromkeys(WORK_CATEGORIES, 1.0)
+    if shared_alu:
+        rates["fp32_int32"] = 1.0
     predicted, bottleneck, times = predict_ms(work, rates, 0.5)
     _, schedule = schedule_work(work, program_count=1, num_ctas=1, num_sms=30)
     return CostResult(
@@ -27,11 +29,11 @@ def make_result(work: dict[str, float], *, shared_alu: bool = True) -> CostResul
 
 @pytest.mark.parametrize("resource", RESOURCES)
 def test_reports_bound_for_each_limiting_resource(resource):
-    work = dict.fromkeys(PIPELINES, 0.0)
+    work = dict.fromkeys(WORK_CATEGORIES, 0.0)
     if resource == "fp32_int32":
         work.update(fp32=2.0, int32=2.0)
     else:
-        work[resource] = 4.0
+        work["tensor_fp16" if resource == "tensor" else resource] = 4.0
     row = make_result(work)
     expected_bound = "memory" if resource in ("l1", "memory") else "compute"
 
@@ -44,7 +46,7 @@ def test_reports_bound_for_each_limiting_resource(resource):
 @pytest.mark.parametrize("shared_alu", [False, True])
 def test_groups_times_by_max_not_sum_without_changing_predictions(shared_alu):
     work = dict(fp32=2.0, fp64=3.0, int32=2.0, sfu=1.0,
-                tensor=5.0, l1=6.0, memory=7.0)
+                tensor_fp16=3.0, tensor_tf32=2.0, l1=6.0, memory=7.0)
     row = make_result(work, shared_alu=shared_alu)
 
     assert row.group_ms == {"compute": 5.0, "memory": 7.0}
@@ -62,7 +64,7 @@ def test_groups_times_by_max_not_sum_without_changing_predictions(shared_alu):
     ],
 )
 def test_bound_preserves_existing_resource_tie_breaking(work_updates, bottleneck, bound):
-    row = make_result(dict.fromkeys(PIPELINES, 0.0) | work_updates)
+    row = make_result(dict.fromkeys(WORK_CATEGORIES, 0.0) | work_updates)
     assert row.bottleneck == bottleneck
     assert row.bound == bound
     assert row.group_ms["compute"] == row.group_ms["memory"]
@@ -78,7 +80,7 @@ def test_resource_groups_cover_every_resource_exactly_once():
 
 
 def test_serializes_grouped_times_and_preserves_resource_details(tmp_path):
-    row = make_result(dict.fromkeys(PIPELINES, 0.0) | {"l1": 4.0})
+    row = make_result(dict.fromkeys(WORK_CATEGORIES, 0.0) | {"l1": 4.0})
     path = tmp_path / "predictions.json"
     write_output(path, [row], [])
     payload = json.loads(path.read_text())
@@ -94,8 +96,8 @@ def test_serializes_grouped_times_and_preserves_resource_details(tmp_path):
 
 def test_summary_counts_both_bounds_and_empty_results():
     rows = [
-        make_result(dict.fromkeys(PIPELINES, 0.0) | {resource: 4.0})
-        for resource in ("tensor", "l1", "memory")
+        make_result(dict.fromkeys(WORK_CATEGORIES, 0.0) | {resource: 4.0})
+        for resource in ("tensor_fp16", "l1", "memory")
     ]
     assert summarize(rows, [])["bound_counts"] == {"compute": 1, "memory": 2}
     assert summarize([], [])["bound_counts"] == {"compute": 0, "memory": 0}
@@ -109,8 +111,8 @@ def test_plots_primary_bounds_and_detailed_resources(tmp_path, monkeypatch):
 
     monkeypatch.setattr(Figure, "savefig", capture_figure)
     rows = [
-        make_result(dict.fromkeys(PIPELINES, 0.0) | {resource: 4.0})
-        for resource in ("tensor", "l1", "memory")
+        make_result(dict.fromkeys(WORK_CATEGORIES, 0.0) | {resource: 4.0})
+        for resource in ("tensor_fp16", "l1", "memory")
     ]
     plot(rows, tmp_path / "scatter.png", tmp_path / "counts.png")
 

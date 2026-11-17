@@ -48,7 +48,7 @@ def analyze(
     results = load_json(results_path)
     spec = load_json(GPU_SPEC_PATH)
     config = load_json(MODEL_CONFIG_PATH)
-    rates = per_sm_throughput_rates(spec, config)
+    rates = per_sm_throughput_rates(spec)
     num_sms = int(spec["sms"])
     launch_overhead_ms = float(spec.get("launch_overhead_ms", 0.0))
 

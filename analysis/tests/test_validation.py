@@ -14,7 +14,8 @@ CATEGORY_RESULTS = """(
   f64 {cost.name = "fp64"},
   f64 {cost.name = "int32"},
   f64 {cost.name = "sfu"},
-  f64 {cost.name = "tensor"},
+  f64 {cost.name = "tensor_fp16"},
+  f64 {cost.name = "tensor_tf32"},
   f64 {cost.name = "l1"},
   f64 {cost.name = "memory"}
 )"""
@@ -28,7 +29,7 @@ def category_cost_mlir(
     return f"""func.func @__cost_expr({arguments}) -> {CATEGORY_RESULTS} {{
   %zero = arith.constant 0.000000e+00 : f64
 {operations}
-  return {fp32_result}, %zero, %zero, %zero, %zero, %zero, %zero : f64, f64, f64, f64, f64, f64, f64
+  return {fp32_result}, %zero, %zero, %zero, %zero, %zero, %zero, %zero : f64, f64, f64, f64, f64, f64, f64, f64
 }}"""
 
 
@@ -131,7 +132,8 @@ def test_cli_reads_stdin_and_labels_every_category():
         "fp64: 0.0",
         "int32: 0.0",
         "sfu: 0.0",
-        "tensor: 0.0",
+        "tensor_fp16: 0.0",
+        "tensor_tf32: 0.0",
         "l1: 0.0",
         "memory: 0.0",
     ]

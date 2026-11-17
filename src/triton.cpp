@@ -90,9 +90,6 @@ const CostSpec &tensor_cost(Operation &op) {
 
 CostType triton_cost_type(Operation &op) {
     llvm::StringRef name = op.getName().getStringRef();
-    if (name == "tt.dot") {
-        return CostType::TENSOR;
-    }
     if (name == "ttg.local_alloc" || name == "ttg.local_load") {
         return CostType::L1;
     }
@@ -121,6 +118,33 @@ Value analyze_triton_store(CostIRBuilder &costBuilder, triton::StoreOp storeOp,
                            const GpuSpec &) {
     return scale_cost(costBuilder, tensor_cost(*storeOp.getOperation()),
                       vector_byte_width(storeOp.getValue()));
+}
+
+CostType dot_cost_type(triton::DotOp dotOp) {
+    auto resultType = cast<RankedTensorType>(dotOp.getD().getType());
+    auto mma = dyn_cast<triton::gpu::NvidiaMmaEncodingAttr>(
+        resultType.getEncoding());
+    if (!mma || mma.getVersionMajor() != 2) {
+        dotOp.emitOpError("cost analysis requires an Ampere MMA dot encoding");
+        llvm::report_fatal_error("unsupported dot encoding in cost analysis");
+    }
+
+    Type inputType = cast<RankedTensorType>(dotOp.getA().getType()).getElementType();
+    Type otherType = cast<RankedTensorType>(dotOp.getB().getType()).getElementType();
+    if (inputType != otherType) {
+        dotOp.emitOpError("cost analysis requires matching dot operand types");
+        llvm::report_fatal_error("unsupported mixed dot operand types");
+    }
+    if (inputType.isF16() || inputType.isBF16()) {
+        // inputPrecision controls f32 inputs only, not f16/bf16 tensor cores.
+        return CostType::TENSOR_FP16;
+    }
+    if (inputType.isF32() &&
+        dotOp.getInputPrecision() == triton::InputPrecision::TF32) {
+        return CostType::TENSOR_TF32;
+    }
+    dotOp.emitOpError("cost analysis supports only f16/bf16 and f32 TF32 dots");
+    llvm::report_fatal_error("unsupported dot precision in cost analysis");
 }
 
 Value analyze_triton_dot(CostIRBuilder &costBuilder, triton::DotOp dotOp,
@@ -227,7 +251,7 @@ std::optional<CostVector> analyze_triton_tensor_op(CostIRBuilder &costBuilder,
 
     if (auto dotOp = dyn_cast<triton::DotOp>(op)) {
         return costBuilder.costVector(
-            CostType::TENSOR, analyze_triton_dot(costBuilder, dotOp, gpu));
+            dot_cost_type(dotOp), analyze_triton_dot(costBuilder, dotOp, gpu));
     }
 
     if (auto addPtrOp = dyn_cast<triton::AddPtrOp>(op)) {

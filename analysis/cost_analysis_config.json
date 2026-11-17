@@ -1,5 +1,4 @@
 {
-  "tensor_throughput_key": "tensor_tf32",
   "parameters": {
     "arith.addf32": {"work_per_count": 1.0},
     "arith.subf32": {"work_per_count": 1.0},

@@ -6,7 +6,7 @@ runtime, and generates comparison plots.
 
 ## Cost function interface
 
-The pass emits one `@__cost_expr` function with seven named results and explicit
+The pass emits one `@__cost_expr` function with eight named results and explicit
 work units:
 
 ```mlir
@@ -15,7 +15,8 @@ func.func @__cost_expr(...) -> (
   f64 {cost.name = "fp64", cost.unit = "instructions"},
   f64 {cost.name = "int32", cost.unit = "instructions"},
   f64 {cost.name = "sfu", cost.unit = "instructions"},
-  f64 {cost.name = "tensor", cost.unit = "flops"},
+  f64 {cost.name = "tensor_fp16", cost.unit = "flops"},
+  f64 {cost.name = "tensor_tf32", cost.unit = "flops"},
   f64 {cost.name = "l1", cost.unit = "bytes"},
   f64 {cost.name = "memory", cost.unit = "bytes"}
 )
@@ -36,7 +37,8 @@ Each result is an independent symbolic equation:
 | `fp64` | Per-lane instruction-equivalents | Scalar FP64 arithmetic |
 | `int32` | Per-lane instruction-equivalents | Integer/index arithmetic, comparisons, ranges, pointer arithmetic, and layout movement proxies |
 | `sfu` | Per-lane instruction-equivalents | Special functions and external elementwise functions |
-| `tensor` | FLOPs | Two FLOPs per dot multiply-accumulate |
+| `tensor_fp16` | FLOPs | Two FLOPs per FP16/BF16 dot multiply-accumulate |
+| `tensor_tf32` | FLOPs | Two FLOPs per FP32-input, single-pass TF32 dot multiply-accumulate |
 | `l1` | Bytes | Logical shared-memory payload |
 | `memory` | Bytes | Logical global-memory payload |
 
@@ -387,9 +389,25 @@ Hardware capacities are separated by unit:
 - `per_sm_bytes_per_cycle`: shared-memory bandwidth.
 
 All capacities are multiplied by clock and the corresponding utilization factor.
-FP64 capacity is explicit, not inferred from FP32. `tensor_throughput_key` still
-selects one tensor path for the whole analysis; per-dot precision selection is
-not modeled.
+FP64 capacity is explicit, not inferred from FP32. Each Ampere MMA dot selects
+its work category from its operand types: FP16/BF16 uses `tensor_fp16`, while
+FP32 with `inputPrecision = tf32` uses `tensor_tf32`. The precision attribute
+does not turn FP16 inputs into TF32. Non-MMA or non-Ampere MMA encodings,
+mismatched operand types, integer dots, IEEE FP32, and multi-pass `tf32x3` dots
+are explicitly unsupported rather than silently inheriting one of these rates.
+
+The two paths compete for the same tensor execution units. Their resource time
+is additive after conversion to milliseconds, including in mixed-precision
+kernels:
+
+```text
+tensor time = tensor_fp16 FLOPs / tensor_fp16 capacity
+            + tensor_tf32 FLOPs / tensor_tf32 capacity
+```
+
+`pipeline_ms` and `bottleneck` retain the aggregate `tensor` resource name;
+`category_expressions` and `scheduled_work` preserve the separate path counts.
+There is no model-wide tensor precision switch.
 
 For GA10x, FP32-only lanes coexist with FP32/INT32-capable lanes. In addition to
 the individual resource times, the analyzer calculates:
@@ -456,12 +474,12 @@ implementation under `src/`.
 The default JSON output is `output/cost_predictions.json`. Each successful
 prediction contains:
 
-- `category_expressions`: the seven simplified symbolic work equations
+- `category_expressions`: the eight simplified symbolic work equations
 - `scalar_args`: named numeric launch arguments used for symbolic evaluation
 - `scheduled_work`: evaluated busiest-SM work for each category
 - `schedule`: scheduler model, launch inputs, block count, and wave count
-- `pipeline_ms`: estimated time for each category and the optional `fp32_int32`
-  shared-resource constraint
+- `pipeline_ms`: estimated time for each execution resource (including combined
+  `tensor` demand) and the optional `fp32_int32` shared-resource constraint
 - `group_ms`: compute and memory times, each the maximum of its resource times
 - `bound`: primary `compute` or `memory` classification
 - `bottleneck`: detailed resource with the largest estimated time (unchanged)
@@ -486,7 +504,13 @@ models their runtime-dependent loop iterations.
 ## Configuration migration
 
 Rebuild the pass and regenerate predictions after changing to this contract.
-Old six-result cost functions are rejected by the analyzer.
+Old six- and seven-result cost functions are rejected by the analyzer.
+
+- Replace the `tensor` work result with `tensor_fp16` and `tensor_tf32` FLOP
+  results, and remove `tensor_throughput_key` from the model configuration.
+  Both per-path capacities and utilization factors belong in `gpu_spec.json`.
+  Regenerate cost functions; selecting a rate for an old untyped tensor count
+  cannot reliably recover the dots' operand precision.
 
 - Replace `ops_per_count` with `work_per_count`; scalar FMA weights are now 1,
   not 2. Dot equations themselves now contain the factor of 2 for FLOPs.

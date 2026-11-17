@@ -10,7 +10,8 @@ CATEGORIES = {
     "fp64": 0.0,
     "int32": 3.0,
     "sfu": 2.0,
-    "tensor": 4.0,
+    "tensor_fp16": 4.0,
+    "tensor_tf32": 2.0,
     "l1": 8.0,
     "memory": 20.0,
 }

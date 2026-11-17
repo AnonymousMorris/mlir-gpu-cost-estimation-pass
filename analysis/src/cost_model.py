@@ -6,8 +6,10 @@ from typing import Any
 import sympy
 
 
-# Scalar categories use per-lane instruction-equivalents; tensor uses FLOPs;
-# l1 and memory use bytes. The shared resource has no separate work equation.
+# Work categories preserve tensor precision; both paths share one resource.
+# Scalar work uses per-lane instruction-equivalents, tensor FLOPs, memory bytes.
+TENSOR_PATHS = ("tensor_fp16", "tensor_tf32")
+WORK_CATEGORIES = ("fp32", "fp64", "int32", "sfu", *TENSOR_PATHS, "l1", "memory")
 PIPELINES = ("fp32", "fp64", "int32", "sfu", "tensor", "l1", "memory")
 RESOURCES = (*PIPELINES, "fp32_int32")
 RESOURCE_GROUPS = {
@@ -36,8 +38,8 @@ def resource_group(resource: str) -> str:
 def pipeline_exprs(
     equations: dict[str, sympy.Expr],
 ) -> dict[str, sympy.Expr]:
-    unknown = equations.keys() - set(PIPELINES)
-    missing = set(PIPELINES) - equations.keys()
+    unknown = equations.keys() - set(WORK_CATEGORIES)
+    missing = set(WORK_CATEGORIES) - equations.keys()
     if unknown or missing:
         details = []
         if unknown:
@@ -45,7 +47,7 @@ def pipeline_exprs(
         if missing:
             details.append(f"missing categories: {', '.join(sorted(missing))}")
         raise ValueError("invalid cost categories (" + "; ".join(details) + ")")
-    return {pipeline: equations[pipeline] for pipeline in PIPELINES}
+    return {category: equations[category] for category in WORK_CATEGORIES}
 
 
 def grid_program_count(grid_size: list[int]) -> int:
@@ -130,10 +132,7 @@ def eval_work(
     }
 
 
-def per_sm_throughput_rates(
-    spec: dict[str, Any],
-    config: dict[str, Any],
-) -> dict[str, float]:
+def per_sm_throughput_rates(spec: dict[str, Any]) -> dict[str, float]:
     sms = int(spec["sms"])
     if sms <= 0:
         raise ValueError("sms must be positive")
@@ -151,14 +150,14 @@ def per_sm_throughput_rates(
         raise ValueError("assumed_clock_ghz must be finite and positive")
 
     instructions = spec["per_sm_instructions_per_cycle"]
-    tensor_key = config.get("tensor_throughput_key", "tensor_tf32")
     rates = {
         key: cycles_per_ms * rate(instructions[key], key)
         for key in ("fp32", "fp64", "int32", "sfu")
     }
-    rates["tensor"] = cycles_per_ms * rate(
-        spec["per_sm_flops_per_cycle"][tensor_key], tensor_key
-    )
+    for path in TENSOR_PATHS:
+        rates[path] = cycles_per_ms * rate(
+            spec["per_sm_flops_per_cycle"][path], path
+        )
     rates["l1"] = cycles_per_ms * rate(spec["per_sm_bytes_per_cycle"]["l1"], "l1")
     rates["memory"] = rate(spec["memory_bandwidth_gb_s"], "memory") * 1_000_000 / sms
     # Omit this capacity for architectures without GA10x-style sharing.
@@ -174,8 +173,10 @@ def predict_ms(
     rates: dict[str, float],
     launch_overhead_ms: float,
 ) -> tuple[float, str, dict[str, float]]:
+    # FP16/BF16 and TF32 compete for the same tensor execution units.
+    tensor_ms = sum(work[path] / rates[path] for path in TENSOR_PATHS)
     pipeline_ms = {
-        pipeline: (work[pipeline] / rates[pipeline] if rates[pipeline] else math.inf)
+        pipeline: tensor_ms if pipeline == "tensor" else work[pipeline] / rates[pipeline]
         for pipeline in PIPELINES
     }
     if "fp32_int32" in rates:

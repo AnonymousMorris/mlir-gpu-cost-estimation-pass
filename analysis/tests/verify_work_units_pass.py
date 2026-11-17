@@ -8,7 +8,7 @@ import sympy
 ANALYSIS_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ANALYSIS_ROOT))
 
-from src.cost_model import PIPELINES
+from src.cost_model import WORK_CATEGORIES
 from src.cost_pass import run_cost_pass
 from src.mlir_sympy import parse_cost_function
 from src.parse import cost_equations
@@ -17,8 +17,8 @@ from src.parse import cost_equations
 def expect_equations(
     actual: dict[str, sympy.Expr], expected: dict[str, sympy.Expr]
 ) -> None:
-    assert tuple(actual) == PIPELINES
-    for category in PIPELINES:
+    assert tuple(actual) == WORK_CATEGORIES
+    for category in WORK_CATEGORIES:
         assert sympy.simplify(actual[category] - expected.get(category, 0)) == 0, (
             category, actual[category]
         )
@@ -48,13 +48,13 @@ def main() -> None:
     cost_function = parse_cost_function(scalar_mlir)
     attrs = cost_function.operation.result_attrs
     units = [attr["cost.unit"].value for attr in attrs]
-    assert units == ["instructions"] * 4 + ["flops", "bytes", "bytes"]
+    assert units == ["instructions"] * 4 + ["flops", "flops", "bytes", "bytes"]
 
     matmul_mlir = run_cost_pass(
         triton_opt, plugin, matmul_fixture, "tiled_matmul_kernel", timeout_s=10.0
     )
     # A 128 x 64 output tile accumulates over K=256; each MAC is two FLOPs.
-    tensor = cost_equations(matmul_mlir)["tensor"]
+    tensor = cost_equations(matmul_mlir)["tensor_fp16"]
     expected_tensor = 2 * 128 * 64 * 256 * symbol("triton.dot_cost")
     assert sympy.simplify(tensor - expected_tensor) == 0
 

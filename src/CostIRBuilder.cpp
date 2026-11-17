@@ -11,10 +11,10 @@
 namespace {
 
 constexpr std::array<llvm::StringLiteral, CostTypeCount> CostTypeNames = {
-    "fp32", "fp64", "int32", "sfu", "tensor", "l1", "memory"};
+    "fp32", "fp64", "int32", "sfu", "tensor_fp16", "tensor_tf32", "l1", "memory"};
 constexpr std::array<llvm::StringLiteral, CostTypeCount> CostTypeUnits = {
     "instructions", "instructions", "instructions", "instructions",
-    "flops", "bytes", "bytes"};
+    "flops", "flops", "bytes", "bytes"};
 
 } // namespace
 

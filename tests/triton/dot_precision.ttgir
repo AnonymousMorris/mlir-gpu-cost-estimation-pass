@@ -1,0 +1,37 @@
+#mma = #ttg.nvidia_mma<{versionMajor = 2, versionMinor = 0, warpsPerCTA = [1, 1], instrShape = [16, 8]}>
+#a16 = #ttg.dot_op<{opIdx = 0, parent = #mma, kWidth = 2}>
+#b16 = #ttg.dot_op<{opIdx = 1, parent = #mma, kWidth = 2}>
+#a32 = #ttg.dot_op<{opIdx = 0, parent = #mma, kWidth = 1}>
+#b32 = #ttg.dot_op<{opIdx = 1, parent = #mma, kWidth = 1}>
+#blocked = #ttg.blocked<{sizePerThread = [1, 1], threadsPerWarp = [4, 8], warpsPerCTA = [1, 1], order = [1, 0]}>
+#a8 = #ttg.dot_op<{opIdx = 0, parent = #mma, kWidth = 4}>
+#b8 = #ttg.dot_op<{opIdx = 1, parent = #mma, kWidth = 4}>
+#asimt = #ttg.dot_op<{opIdx = 0, parent = #blocked, kWidth = 0}>
+#bsimt = #ttg.dot_op<{opIdx = 1, parent = #blocked, kWidth = 0}>
+module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 1 : i32, ttg.target = "cuda:86", "ttg.threads-per-warp" = 32 : i32} {
+  tt.func public @fp16(%a: tensor<16x32xf16, #a16>, %b: tensor<32x8xf16, #b16>, %c: tensor<16x8xf32, #mma>) {
+    %result = tt.dot %a, %b, %c, inputPrecision = tf32 : tensor<16x32xf16, #a16> * tensor<32x8xf16, #b16> -> tensor<16x8xf32, #mma>
+    tt.return
+  }
+  tt.func public @bf16(%a: tensor<16x32xbf16, #a16>, %b: tensor<32x8xbf16, #b16>, %c: tensor<16x8xf32, #mma>) {
+    %result = tt.dot %a, %b, %c, inputPrecision = tf32 : tensor<16x32xbf16, #a16> * tensor<32x8xbf16, #b16> -> tensor<16x8xf32, #mma>
+    tt.return
+  }
+  tt.func public @tf32(%a: tensor<16x32xf32, #a32>, %b: tensor<32x8xf32, #b32>, %c: tensor<16x8xf32, #mma>) {
+    %result = tt.dot %a, %b, %c, inputPrecision = tf32 : tensor<16x32xf32, #a32> * tensor<32x8xf32, #b32> -> tensor<16x8xf32, #mma>
+    tt.return
+  }
+  tt.func public @int8(%a: tensor<16x32xi8, #a8>, %b: tensor<32x8xi8, #b8>, %c: tensor<16x8xi32, #mma>) {
+    %result = tt.dot %a, %b, %c : tensor<16x32xi8, #a8> * tensor<32x8xi8, #b8> -> tensor<16x8xi32, #mma>
+    tt.return
+  }
+  tt.func public @simt_ieee(%a: tensor<16x32xf32, #asimt>, %b: tensor<32x8xf32, #bsimt>, %c: tensor<16x8xf32, #blocked>) {
+    %result = tt.dot %a, %b, %c, inputPrecision = ieee : tensor<16x32xf32, #asimt> * tensor<32x8xf32, #bsimt> -> tensor<16x8xf32, #blocked>
+    tt.return
+  }
+  tt.func public @mixed(%a: tensor<16x32xf16, #a16>, %b: tensor<32x8xf16, #b16>, %x: tensor<16x32xf32, #a32>, %y: tensor<32x8xf32, #b32>, %c: tensor<16x8xf32, #mma>) {
+    %first = tt.dot %a, %b, %c, inputPrecision = tf32 : tensor<16x32xf16, #a16> * tensor<32x8xf16, #b16> -> tensor<16x8xf32, #mma>
+    %second = tt.dot %x, %y, %first, inputPrecision = tf32 : tensor<16x32xf32, #a32> * tensor<32x8xf32, #b32> -> tensor<16x8xf32, #mma>
+    tt.return
+  }
+}

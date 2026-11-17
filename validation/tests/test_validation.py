@@ -31,12 +31,13 @@ def test_simplifies_generated_cost_expression():
     assert str(cost_equation(SAMPLE_COST_MLIR)) == "4096.0*dpas_cost + 3505.0"
 
 
-def test_seven_category_contract_with_explicit_units():
+def test_eight_category_contract_with_explicit_units():
     # This parser intentionally does not share the analysis implementation.
     categories = [
         ("fp32", "instructions"), ("fp64", "instructions"),
         ("int32", "instructions"), ("sfu", "instructions"),
-        ("tensor", "flops"), ("l1", "bytes"), ("memory", "bytes"),
+        ("tensor_fp16", "flops"), ("tensor_tf32", "flops"),
+        ("l1", "bytes"), ("memory", "bytes"),
     ]
     results = ", ".join(
         f'f64 {{cost.name = "{name}", cost.unit = "{unit}"}}'
@@ -44,7 +45,7 @@ def test_seven_category_contract_with_explicit_units():
     )
     mlir = f"""func.func @__cost_expr() -> ({results}) {{
       %zero = arith.constant 0.0 : f64
-      return %zero, %zero, %zero, %zero, %zero, %zero, %zero : f64, f64, f64, f64, f64, f64, f64
+      return %zero, %zero, %zero, %zero, %zero, %zero, %zero, %zero : f64, f64, f64, f64, f64, f64, f64, f64
     }}"""
     assert formatted_cost_equations(mlir).splitlines() == [
         f"{name}: 0.0" for name, _ in categories

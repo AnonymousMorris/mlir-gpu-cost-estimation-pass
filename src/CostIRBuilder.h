@@ -16,7 +16,8 @@ enum class CostType {
     FP64,
     INT32,
     SFU,
-    TENSOR,
+    TENSOR_FP16,
+    TENSOR_TF32,
     L1,
     MEMORY,
 
